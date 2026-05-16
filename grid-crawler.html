@@ -541,10 +541,9 @@
 
     /* ── Minimap ── */
     #minimap-container {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      padding: 10px;
-      border-radius: 4px;
+      background: transparent; /* Removed the solid background */
+      border: none;            /* Removed the container border */
+      padding: 5px;
     }
 
     .minimap-title {
@@ -552,32 +551,36 @@
       font-size: 0.9rem;
       color: var(--gold);
       text-align: center;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       letter-spacing: 1px;
     }
 
     .minimap-grid {
       display: grid;
-      gap: 2px;
+      gap: 0;
+      /* Forces the grid tracks to be exactly 14px wide/tall, matching your cells */
+      grid-template-columns: repeat(auto-fill, 14px);
+      grid-template-rows: repeat(auto-fill, 14px);
     }
 
     .minimap-cell {
-      width: 22px;
-      height: 22px;
-      background: #070604;
-      border: 1px solid #15110a;
+      width: 14px;
+      height: 14px;
+      background: transparent;       
+      border: 1px solid transparent; 
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
+      font-size: 10px; /* Slightly reduced so text still fits neatly inside 14px */
       line-height: 1;
-      color: var(--text-dim);
+      color: transparent;            
+      box-sizing: border-box;            /* Hides any text/icons in unvisited cells */
     }
 
     .minimap-cell.visited {
       background: #2a2418;
-      border-color: var(--border);
-      color: var(--text);
+      border-color: var(--border);   /* Makes the border visible again */
+      color: var(--text);            /* Makes the text visible again */
     }
 
     .minimap-cell.exit {
@@ -592,9 +595,11 @@
 
     .minimap-cell.player {
       background: var(--gold);
+      border-color: var(--gold); /* Optional: gives the player box a solid gold border */
       color: #1a1408;
       font-weight: bold;
     }
+    
   </style>
 </head>
 
@@ -682,31 +687,35 @@
         <div class="class-attr">Power <span>7</span></div>
         <div class="class-attr">Perception <span>4</span></div>
         <div class="class-attr">Persuasion <span>4</span></div>
-        <div class="class-desc">A blade-forged veteran. Excels in combat, blind to subtlety.</div>
+        <div class="class-desc">Excels in combat, blind to subtlety.</div>
       </div>
       <div class="class-card" onclick="startGame('Thinker')">
         <div class="class-name">Thinker</div>
         <div class="class-attr">Power <span>4</span></div>
         <div class="class-attr">Perception <span>7</span></div>
         <div class="class-attr">Persuasion <span>4</span></div>
-        <div class="class-desc">Sharp-eyed and nimble. Finds treasure where others find traps.</div>
+        <div class="class-desc">Sharp-eyed and nimble. Finds treasure and avoid traps.</div>
       </div>
       <div class="class-card" onclick="startGame('Talker')">
         <div class="class-name">Talker</div>
         <div class="class-attr">Power <span>4</span></div>
         <div class="class-attr">Perception <span>4</span></div>
         <div class="class-attr">Persuasion <span>7</span></div>
-        <div class="class-desc">Words as weapons. Turns strangers into allies — or enemies.</div>
+        <div class="class-desc">Words as weapons. Turns strangers into allies.</div>
       </div>
     </div>
   </div>
 
   <div id="game-container" style="display:none;">
     <div class="panel" id="status-panel">
-      <div class="panel-title">The Adventurer</div>
+      <div class="panel-title"></div>
+      <div id="minimap-container" style="flex-shrink: 0;">
+        <div class="minimap-title"></div>
+        <div class="minimap-grid" id="minimap-grid"></div>
+      </div>
       <div id="status-content"></div>
       <button type="button" class="btn btn-dir" id="btn-character-description"
-        style="width: 100%; margin-top: 12px;" onclick="toggleCharacterDescription()">Show Appearance</button>
+        style="width: 100%; margin-top: 12px;" onclick="toggleCharacterDescription()">Character Description</button>
       <div id="character-description" class="character-description"></div>
       <div class="panel-title section-gap" style="font-size:0.85rem;">Narrator API</div>
       <div class="runtime-api-control">
@@ -726,22 +735,22 @@
       <div id="log"></div>
     </div>
     <div class="panel" id="input-panel"
-      style="display: flex; gap: 20px; align-items: center; justify-content: space-between;">
+      style="display: flex; gap: 20px; align-items: top; justify-content: space-between;">
       <div id="input-controls" style="flex: 1;">
         <div class="panel-title" id="input-title">Choose Direction</div>
         <div class="btn-group" id="input-buttons"></div>
       </div>
-      <div id="minimap-container" style="flex-shrink: 0;">
+      <!-- <div id="minimap-container" style="flex-shrink: 0;">
         <div class="minimap-title">Map</div>
         <div class="minimap-grid" id="minimap-grid"></div>
-      </div>
+      </div> -->
     </div>
   </div>
 
   <script src="js/game-balance.js"></script>
-  <script src="js/llm-prompts.js"></script>
   <script src="js/connectivity.js"></script>
   <script src="js/presets.js"></script>
+  <script src="js/llm-prompts.js"></script>
   <script src="js/gameplay.js"></script>
 </body>
 

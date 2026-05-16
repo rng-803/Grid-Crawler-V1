@@ -1,6 +1,6 @@
 // Grid / progression tuning
 const GRID_WIDTH = 7;
-const GRID_HEIGHT = 12;
+const GRID_HEIGHT = 7;
 const WALL_RATIO = 0.4;
 const MAX_ATTR = 20;
 const MAX_LEVEL = 20;

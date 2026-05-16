@@ -63,7 +63,7 @@ Describe the resolution of the encounter. Include a short dialogue exchange betw
 function buildFloorItemPrompt(item, playerContext) {
   return `The player found an item: ${item.name}.
 Player state: ${playerContext}
-Describe the player picking up the item.`;
+Describe the player picking up the item, in a short paragraph`;
 }
 
 function buildPhysicalDescriptionPrompt(data) {
@@ -132,7 +132,7 @@ Return ONLY valid JSON:
       "rewardItemName": "<gift item on success; if rewardIfSuccess.type is buff, match its attribute/magnitude/theme; if curseClear, make it sound like it removes one curse>",
 
       For "item":
-      "itemName": "<floor loot name; if pickup.type is buff, tie it to its attribute/magnitude; if curseClear, make it sound like it removes one curse>"
+      "itemName": "<Items are physical objects. If pickup.type is buff, tie it to its attribute/magnitude; if curseClear, make it sound like it removes one curse>"
     }
   ]
 }

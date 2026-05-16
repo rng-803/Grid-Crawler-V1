@@ -8,6 +8,54 @@ function getApiFromDom() {
   };
 }
 
+// async function chatCompletion(userContent, onChunk) {
+//   const { apiKey, apiUrl, model } = getApiFromDom();
+//   if (!apiKey) throw new Error('API key required');
+
+//   const body = {
+//     model,
+//     messages: [{ role: 'user', content: userContent }],
+//     stream: true // Enable streaming
+//   };
+
+//   const response = await fetch(`${apiUrl}/chat/completions`, {
+//     method: 'POST',
+//     headers: {
+//       'Content-Type': 'application/json',
+//       'Authorization': `Bearer ${apiKey}`
+//     },
+//     body: JSON.stringify(body)
+//   });
+
+//   if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+//   // Read the streaming response
+//   const reader = response.body.getReader();
+//   const decoder = new TextDecoder('utf-8');
+//   let fullText = '';
+
+//   while (true) {
+//     const { done, value } = await reader.read();
+//     if (done) break;
+    
+//     const chunk = decoder.decode(value, { stream: true });
+//     const lines = chunk.split('\n').filter(line => line.trim() !== '');
+    
+//     for (const line of lines) {
+//       if (line.replace(/^data: /, '').trim() === '[DONE]') return fullText;
+      
+//       if (line.startsWith('data: ')) {
+//         const parsed = JSON.parse(line.replace(/^data: /, ''));
+//         const content = parsed.choices[0].delta.content;
+//         if (content) {
+//           fullText += content;
+//           onChunk(content); // Callback to update your game UI immediately
+//         }
+//       }
+//     }
+//   }
+//   return fullText;
+// }
 async function chatCompletion(userContent, options = {}) {
   const { apiKey, apiUrl, model } = getApiFromDom();
   if (!apiKey) throw new Error('API key required');

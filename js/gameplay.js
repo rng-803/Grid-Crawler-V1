@@ -328,7 +328,7 @@ function generateGrid() {
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
   const startX = Math.floor(W / 2);
-  const startY = H - 1;
+  const startY = Math.floor(H / 2);
   const wallN = Math.floor(W * H * WALL_RATIO);
 
   for (let attempt = 0; attempt < GRID_GEN_MAX_ATTEMPTS; attempt++) {
@@ -350,12 +350,22 @@ function generateGrid() {
 
     const open = positions.slice(wallN);
     const upperThirdLimit = Math.ceil(H / 3);
-    const validExits = open.filter(p => p.y < upperThirdLimit);
-
-    if (!validExits.length) continue;
-    const exitPos = validExits[Math.floor(Math.random() * validExits.length)];
+    // const validExits = open.filter(p => p.y < upperThirdLimit);
+    const validExits = open.filter(p => 
+      p.x === 0 || 
+      p.y === 0 || 
+      p.x === W - 1 || 
+      p.y === H - 1
+    );
+    const finalValidExits = validExits.length ? validExits : open;
+    // if (!validExits.length) continue;
+    // const exitPos = validExits[Math.floor(Math.random() * validExits.length)];
+    // cells[exitPos.y][exitPos.x].type = 'exit';
+    if (!finalValidExits.length) continue;
+    const exitPos = finalValidExits[Math.floor(Math.random() * finalValidExits.length)];
     cells[exitPos.y][exitPos.x].type = 'exit';
 
+    // if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
     if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
 
     cells[startY][startX].type = 'start';
@@ -749,7 +759,7 @@ async function resolveNPC(data) {
     item = addItemFixed(data.rewardItem);
     mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: <em>${item.name}</em> (${itemDescription(item)})</span>`;
   } else {
-    item = addItemFixed(data.rewardItem);
+    item = data.rewardItem.name;
     s = applyCurseFromEncounter(data);
     mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${s.attribute} ${s.magnitude})</span>`;
   }
@@ -947,9 +957,8 @@ function renderStatusPanel() {
   };
 
   document.getElementById('status-content').innerHTML = `
-    <div class="stat-row"><span class="stat-label">Class</span><span class="stat-val">${p.class}</span></div>
-    <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level} / ${MAX_LEVEL}</span></div>
-    <div class="stat-row"><span class="stat-label">HP</span>
+    <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
+    <span class="stat-label">HP</span>
       <span class="stat-val ${p.hp <= 3 ? 'danger' : ''}">${p.hp} / 10</span></div>
     <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / 10) * 100}%"></div></div>
 
@@ -1048,6 +1057,7 @@ function renderMinimap() {
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
   grid.style.gridTemplateColumns = `repeat(${W}, 22px)`;
+  grid.style.gridTemplateRows = `repeat(${H}, 22px)`;
   let html = '';
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -1165,7 +1175,7 @@ function startGame(className) {
   initState(className);
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('game-container').style.display = 'grid';
-  addLog(`You are a <span class="highlight">${className}</span>, standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
+  addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
   renderUI();
 }
 

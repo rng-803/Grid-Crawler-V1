@@ -838,7 +838,6 @@ function movePlayer(dir) {
   }
 
   if (cell.visited && !cell.fled) {
-    addLog(`You have passed through here before. Nothing stirs.`, 'event-neutral');
     checkGameOver().then(isGameOver => {
       if (!isGameOver) renderUI();
     });

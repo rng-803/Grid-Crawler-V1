@@ -561,26 +561,27 @@
       /* Forces the grid tracks to be exactly 14px wide/tall, matching your cells */
       grid-template-columns: repeat(auto-fill, 14px);
       grid-template-rows: repeat(auto-fill, 14px);
+      justify-content: center;  /* ← Add this to center horizontally */
     }
 
-    .minimap-cell {
+      .minimap-cell {
       width: 14px;
       height: 14px;
       background: transparent;       
-      border: 1px solid transparent; 
+      border: none;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 10px; /* Slightly reduced so text still fits neatly inside 14px */
+      font-size: 10px;
       line-height: 1;
       color: transparent;            
-      box-sizing: border-box;            /* Hides any text/icons in unvisited cells */
+      box-sizing: border-box;
     }
 
     .minimap-cell.visited {
       background: #2a2418;
-      border-color: var(--border);   /* Makes the border visible again */
-      color: var(--text);            /* Makes the text visible again */
+      color: var(--text);
+      /* No border */
     }
 
     .minimap-cell.exit {
@@ -740,10 +741,6 @@
         <div class="panel-title" id="input-title">Choose Direction</div>
         <div class="btn-group" id="input-buttons"></div>
       </div>
-      <!-- <div id="minimap-container" style="flex-shrink: 0;">
-        <div class="minimap-title">Map</div>
-        <div class="minimap-grid" id="minimap-grid"></div>
-      </div> -->
     </div>
   </div>
 

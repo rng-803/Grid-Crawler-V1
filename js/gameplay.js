@@ -1055,8 +1055,8 @@ function renderMinimap() {
   const grid = document.getElementById('minimap-grid');
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
-  grid.style.gridTemplateColumns = `repeat(${W}, 22px)`;
-  grid.style.gridTemplateRows = `repeat(${H}, 22px)`;
+  grid.style.gridTemplateColumns = `repeat(${W}, 14px)`;
+  grid.style.gridTemplateRows = `repeat(${H}, 14px)`;
   let html = '';
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {

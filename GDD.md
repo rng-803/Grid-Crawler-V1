@@ -22,7 +22,7 @@ Each ranges from **1 to 20**, set at game start by chosen class, then modified b
 | Attribute   | Effect |
 |-------------|--------|
 | **Power**      | Determines combat outcome (compared against enemy Power) |
-| **Perception** | High = find treasure; Low = trigger traps; also used in NPC checks |
+| **Agility** | High = find treasure; Low = trigger traps; also used in NPC checks |
 | **Persuasion** | Determines outcome of NPC interactions |
 
 ### Inventory
@@ -57,7 +57,7 @@ Each ranges from **1 to 20**, set at game start by chosen class, then modified b
 
 Three classes set the initial attribute spread (total of 15 points distributed across 3 attributes, min 1 each):
 
-| Class      | Power | Perception | Persuasion |
+| Class      | Power | Agility | Persuasion |
 |------------|-------|------------|------------|
 | Warrior    | 7     | 4          | 4          |
 | Scout      | 4     | 7          | 4          |
@@ -113,10 +113,10 @@ Each treasure/trap square has a hidden **Difficulty** value (1–20).
 - the player may choose to flee, or grab the treasure
 
 **Resolution:**
-- `Player Perception > Difficulty` → **Pass (Treasure)**
+- `Player Agility > Difficulty` → **Pass (Treasure)**
   - Player gains **1 level-up**
   - Player gains **1 item**
-- `Player Perception ≤ Difficulty` → **Fail (Trap)**
+- `Player Agility ≤ Difficulty` → **Fail (Trap)**
   - Player loses **1 HP**
   - Player gains **1 random curse**
 
@@ -157,10 +157,10 @@ Items are stored in inventory and can be used by the player on their turn (befor
 |-----------|--------|
 | Use type  | `single-use` / `multi-use` |
 | Effect    | `+1`, `+2`, or `+3` to one attribute / `Clear Single Curse`|
-| Attribute | Power, Perception, or Persuasion |
+| Attribute | Power, Agility, or Persuasion |
 
 Single-use items are removed from inventory after use. Multi-use items remain.
-Curse-clearing effects remove one random curse from the chosen category (power, perception, or persuasion)
+Curse-clearing effects remove one random curse from the chosen category (power, agility, or persuasion)
 
 ---
 
@@ -170,10 +170,10 @@ Randomly selected from a pool. Each applies a persistent debuff.
 
 Example pool:
 - Rusted Weapon → -1 Power
-- Blurred Vision → -1 Perception
+- Blurred Vision → -1 Agility
 - Shaken Nerves → -1 Persuasion
 - Heavy Wound → -2 Power
-- Blinded → -2 Perception
+- Blinded → -2 Agility
 - Rattled → -2 Persuasion
 
 Curses stack (two "Rusted Weapon" curses = -2 Power total).
@@ -246,5 +246,4 @@ This is where the flavour of the game resides. Every turn, the AI will receive t
 The AI will then generate a short description of the  encounter that is about to occur.
 After the player has chosen to flee or engage, the AI will generate a short description of the resolution of the encounter, describing the encounter itself, or the escape.
 The narration must be restricted to one or two paragraphs, in order to avoid making it too long.
-
 

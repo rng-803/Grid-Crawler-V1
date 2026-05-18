@@ -8,62 +8,19 @@ function getApiFromDom() {
   };
 }
 
-// async function chatCompletion(userContent, onChunk) {
-//   const { apiKey, apiUrl, model } = getApiFromDom();
-//   if (!apiKey) throw new Error('API key required');
-
-//   const body = {
-//     model,
-//     messages: [{ role: 'user', content: userContent }],
-//     stream: true // Enable streaming
-//   };
-
-//   const response = await fetch(`${apiUrl}/chat/completions`, {
-//     method: 'POST',
-//     headers: {
-//       'Content-Type': 'application/json',
-//       'Authorization': `Bearer ${apiKey}`
-//     },
-//     body: JSON.stringify(body)
-//   });
-
-//   if (!response.ok) throw new Error(`API Error: ${response.status}`);
-
-//   // Read the streaming response
-//   const reader = response.body.getReader();
-//   const decoder = new TextDecoder('utf-8');
-//   let fullText = '';
-
-//   while (true) {
-//     const { done, value } = await reader.read();
-//     if (done) break;
-    
-//     const chunk = decoder.decode(value, { stream: true });
-//     const lines = chunk.split('\n').filter(line => line.trim() !== '');
-    
-//     for (const line of lines) {
-//       if (line.replace(/^data: /, '').trim() === '[DONE]') return fullText;
-      
-//       if (line.startsWith('data: ')) {
-//         const parsed = JSON.parse(line.replace(/^data: /, ''));
-//         const content = parsed.choices[0].delta.content;
-//         if (content) {
-//           fullText += content;
-//           onChunk(content); // Callback to update your game UI immediately
-//         }
-//       }
-//     }
-//   }
-//   return fullText;
-// }
+// with streaming:
 async function chatCompletion(userContent, options = {}) {
   const { apiKey, apiUrl, model } = getApiFromDom();
   if (!apiKey) throw new Error('API key required');
 
+  const shouldStream = Boolean(options.stream && options.onChunk);
+
   const body = {
     model,
     messages: [{ role: 'user', content: userContent }],
+    stream: shouldStream
   };
+
   if (options.responseFormat) {
     body.response_format = options.responseFormat;
   }
@@ -77,22 +34,121 @@ async function chatCompletion(userContent, options = {}) {
     body: JSON.stringify(body)
   });
 
-  if (!response.ok) throw new Error(`API Error: ${response.status}`);
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`API Error: ${response.status} ${errorText}`);
+  }
 
-async function generateNarration(aiContext, promptText) {
+  // Non-streaming mode: keep your current behavior
+  if (!shouldStream) {
+    const data = await response.json();
+    return data.choices[0].message.content;
+  }
+
+  // Streaming mode
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+
+  let fullText = '';
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+
+    // Keep last partial line in buffer.
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed || !trimmed.startsWith('data:')) {
+        continue;
+      }
+
+      const data = trimmed.replace(/^data:\s*/, '');
+
+      if (data === '[DONE]') {
+        return fullText;
+      }
+
+      try {
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content;
+
+        if (content) {
+          fullText += content;
+          options.onChunk(content, fullText);
+        }
+      } catch (err) {
+        console.warn('Could not parse streamed chunk:', data, err);
+      }
+    }
+  }
+
+  return fullText;
+}
+async function generateNarration(aiContext, promptText, onChunk) {
   const fullPrompt = buildNarratorFullPrompt(aiContext, promptText);
+
   try {
     const { apiKey } = getApiFromDom();
     if (!apiKey) return null;
-    return await chatCompletion(fullPrompt);
+
+    return await chatCompletion(fullPrompt, {
+      stream: Boolean(onChunk),
+      onChunk
+    });
   } catch (err) {
     console.error("Narration error:", err);
     return null;
   }
 }
+
+// async function chatCompletion(userContent, options = {}) {
+//   const { apiKey, apiUrl, model } = getApiFromDom();
+//   if (!apiKey) throw new Error('API key required');
+
+//   const body = {
+//     model,
+//     messages: [{ role: 'user', content: userContent }],
+//   };
+//   if (options.responseFormat) {
+//     body.response_format = options.responseFormat;
+//   }
+
+//   const response = await fetch(`${apiUrl}/chat/completions`, {
+//     method: 'POST',
+//     headers: {
+//       'Content-Type': 'application/json',
+//       'Authorization': `Bearer ${apiKey}`
+//     },
+//     body: JSON.stringify(body)
+//   });
+
+//   if (!response.ok) throw new Error(`API Error: ${response.status}`);
+//   const data = await response.json();
+//   return data.choices[0].message.content;
+// }
+
+// async function generateNarration(aiContext, promptText) {
+//   const fullPrompt = buildNarratorFullPrompt(aiContext, promptText);
+//   try {
+//     const { apiKey } = getApiFromDom();
+//     if (!apiKey) return null;
+//     return await chatCompletion(fullPrompt);
+//   } catch (err) {
+//     console.error("Narration error:", err);
+//     return null;
+//   }
+// }
 
 async function generatePhysicalDescription(promptText) {
   try {

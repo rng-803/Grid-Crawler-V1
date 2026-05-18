@@ -607,7 +607,7 @@
 <body>
 
   <h1>Grid Crawler</h1>
-  <p class="subtitle">a game of power, persuasion & perception</p>
+  <p class="subtitle">a game of power, persuasion & agility</p>
 
   <div id="ai-setup-screen">
     <p class="setup-intro">
@@ -637,20 +637,37 @@
         </div>
       </div>
 
-      <label>Theme / Setting:</label>
-      <textarea id="game-theme" placeholder="Describe the setting, tone, factions, locations, and any other theme details..."
-        style="width: 100%; height: 120px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+      <label>Setting:</label>
+      <input type="text" id="game-setting" placeholder="Fantasy, sci-fi, gothic horror..."
+        style="width: 100%; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border);">
 
-      <label>Curse Types (Optional):</label>
-      <textarea id="game-curse-types" placeholder="what curses may befall out adventurer?"
-        style="width: 100%; height: 80px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+      <button type="button" class="btn btn-dir" id="btn-advanced-setup" onclick="toggleAdvancedSetup()"
+        style="width: 100%; margin-bottom: 10px;">Show Advanced Setup</button>
+
+      <div id="advanced-setup-fields" style="display:none;">
+        <label>Theme Details:</label>
+        <textarea id="game-theme-details" placeholder="Describe the setting, tone, factions, locations, and any other theme details..."
+          style="width: 100%; height: 120px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+
+        <label>Enemy Details (Optional):</label>
+        <textarea id="game-enemy-details" placeholder="What kinds of enemies should appear?"
+          style="width: 100%; height: 70px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+
+        <label>Curse Details (Optional):</label>
+        <textarea id="game-curse-details" placeholder="What curses may befall the adventurer?"
+          style="width: 100%; height: 70px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+
+        <label>Item Details (Optional):</label>
+        <textarea id="game-item-details" placeholder="What items, relics, or gear should be found?"
+          style="width: 100%; height: 70px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
+      </div>
 
       <label>Character Name & Description (Optional):</label>
       <textarea id="game-char-desc" placeholder="Name and short description"
         style="width: 100%; height: 60px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
 
       <div class="preset-row">
-        <label>Story presets (theme + curses + character — saved in this browser):</label>
+        <label>Story presets (setting + theme + details + character — saved in this browser):</label>
         <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px;">
           <select id="theme-preset-select"
             style="flex: 1; min-width: 160px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border);"></select>
@@ -665,13 +682,17 @@
         <button class="btn btn-dir" onclick="skipTheme()" id="btn-proceed">Skip (Default)</button>
       </div>
       <button class="btn btn-dir" id="btn-debug-prompt" onclick="togglePromptDebug()"
-        style="margin-top: 10px; width: 100%;">Show AI Prompt</button>
+        style="margin-top: 10px; width: 100%;">Show AI Prompts</button>
       <textarea id="debug-prompt"
         style="margin-top: 10px; display: none; background: var(--panel); padding: 10px; border: 1px solid var(--border); height: 280px; width: 100%; overflow-y: auto; font-size: 0.8rem; text-align: left; color: var(--text); resize: vertical; font-family: monospace;"></textarea>
       <button class="btn btn-dir" id="btn-debug" onclick="toggleDebug()"
         style="display: none; margin-top: 10px; width: 100%;">Show Generated Names</button>
       <textarea id="debug-names"
         style="margin-top: 10px; display: none; background: var(--panel); padding: 10px; border: 1px solid var(--border); height: 200px; width: 100%; overflow-y: auto; font-size: 0.8rem; text-align: left; color: var(--text); resize: vertical; font-family: monospace;"></textarea>
+      <button class="btn btn-dir" id="btn-debug-timings" onclick="toggleTimingDebug()"
+        style="display: none; margin-top: 10px; width: 100%;">Show API Timings</button>
+      <textarea id="debug-timings"
+        style="margin-top: 10px; display: none; background: var(--panel); padding: 10px; border: 1px solid var(--border); height: 180px; width: 100%; overflow-y: auto; font-size: 0.8rem; text-align: left; color: var(--text); resize: vertical; font-family: monospace;"></textarea>
       <div id="ai-status" style="margin-top: 15px; color: var(--gold); font-style: italic; text-align: center;"></div>
     </div>
   </div>
@@ -686,21 +707,21 @@
       <div class="class-card" onclick="startGame('Fighter')">
         <div class="class-name">Fighter</div>
         <div class="class-attr">Power <span>7</span></div>
-        <div class="class-attr">Perception <span>4</span></div>
+        <div class="class-attr">Agility <span>4</span></div>
         <div class="class-attr">Persuasion <span>4</span></div>
         <div class="class-desc">Excels in combat, blind to subtlety.</div>
       </div>
       <div class="class-card" onclick="startGame('Thinker')">
         <div class="class-name">Thinker</div>
         <div class="class-attr">Power <span>4</span></div>
-        <div class="class-attr">Perception <span>7</span></div>
+        <div class="class-attr">Agility <span>7</span></div>
         <div class="class-attr">Persuasion <span>4</span></div>
-        <div class="class-desc">Sharp-eyed and nimble. Finds treasure and avoid traps.</div>
+        <div class="class-desc">Sharp-eyed and nimble. Finds treasure and avoids traps.</div>
       </div>
       <div class="class-card" onclick="startGame('Talker')">
         <div class="class-name">Talker</div>
         <div class="class-attr">Power <span>4</span></div>
-        <div class="class-attr">Perception <span>4</span></div>
+        <div class="class-attr">Agility <span>4</span></div>
         <div class="class-attr">Persuasion <span>7</span></div>
         <div class="class-desc">Words as weapons. Turns strangers into allies.</div>
       </div>

@@ -8,10 +8,33 @@ const DIRECTIONS = {
 let G = null;
 let PENDING_NAMED_GRID = null;
 let NAMING_PROMPT_CACHE = null;
+let GENERATED_CURSE_POOLS = null;
+let AVAILABLE_CURSE_POOLS = null;
 let AI_CONTEXT = {
   theme: '',
   characterDesc: ''
 };
+
+function toggleAdvancedSetup(forceVisible) {
+  const panel = document.getElementById('advanced-setup-fields');
+  const button = document.getElementById('btn-advanced-setup');
+  if (!panel || !button) return;
+
+  const shouldShow = typeof forceVisible === 'boolean'
+    ? forceVisible
+    : panel.style.display === 'none';
+
+  panel.style.display = shouldShow ? 'block' : 'none';
+  button.textContent = shouldShow ? 'Hide Advanced Setup' : 'Show Advanced Setup';
+}
+
+function syncAdvancedSetupVisibility() {
+  const inputs = getNamingPromptInputs();
+  const hasAdvancedValues = Boolean(
+    inputs.themeDetails || inputs.enemyDetails || inputs.curseDetails || inputs.itemDetails
+  );
+  toggleAdvancedSetup(hasAdvancedValues);
+}
 
 function toggleDebug() {
   const div = document.getElementById('debug-names');
@@ -24,16 +47,65 @@ function toggleDebug() {
   }
 }
 
+function toggleTimingDebug() {
+  const div = document.getElementById('debug-timings');
+  const button = document.getElementById('btn-debug-timings');
+  if (!div || !button) return;
+
+  if (div.style.display === 'none') {
+    if (typeof formatApiTimingLog === 'function') {
+      div.value = formatApiTimingLog();
+    }
+    div.style.display = 'block';
+    button.textContent = 'Hide API Timings';
+  } else {
+    div.style.display = 'none';
+    button.textContent = 'Show API Timings';
+  }
+}
+
+function refreshTimingDebug() {
+  const div = document.getElementById('debug-timings');
+  const button = document.getElementById('btn-debug-timings');
+  if (!button) return;
+  button.style.display = 'block';
+  if (div && div.style.display !== 'none' && typeof formatApiTimingLog === 'function') {
+    div.value = formatApiTimingLog();
+  }
+}
+
 function getNamingPromptInputs() {
   return {
-    theme: document.getElementById('game-theme').value.trim(),
-    curseTypes: document.getElementById('game-curse-types').value.trim(),
+    setting: document.getElementById('game-setting').value.trim(),
+    themeDetails: document.getElementById('game-theme-details').value.trim(),
+    enemyDetails: document.getElementById('game-enemy-details').value.trim(),
+    curseDetails: document.getElementById('game-curse-details').value.trim(),
+    itemDetails: document.getElementById('game-item-details').value.trim(),
     charDesc: document.getElementById('game-char-desc').value.trim(),
   };
 }
 
 function getNamingPromptSignature(inputs) {
   return JSON.stringify(inputs);
+}
+
+function applyNamingPromptInputs(inputs) {
+  if (!inputs) return;
+  const mapping = {
+    setting: 'game-setting',
+    themeDetails: 'game-theme-details',
+    enemyDetails: 'game-enemy-details',
+    curseDetails: 'game-curse-details',
+    itemDetails: 'game-item-details',
+    charDesc: 'game-char-desc',
+  };
+
+  for (const [key, id] of Object.entries(mapping)) {
+    const el = document.getElementById(id);
+    if (!el || inputs[key] == null) continue;
+    el.value = String(inputs[key]).trim();
+  }
+  syncAdvancedSetupVisibility();
 }
 
 function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
@@ -43,10 +115,38 @@ function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
   }
 
   const grid = generateGrid();
-  const manifest = buildNamingManifest(grid);
-  const prompt = buildGridNamingPrompt(inputs.theme, inputs.curseTypes, inputs.charDesc, manifest);
-  NAMING_PROMPT_CACHE = { signature, grid, manifest, prompt };
+  const requirements = buildNamingRequirements(grid);
+  const prompts = {
+    enemies: buildEnemyNamesPrompt(inputs, requirements.enemies),
+    npcs: buildNpcNamesPrompt(inputs, requirements.npcs),
+    curses: buildCurseNamesPrompt(inputs, requirements.curses),
+    items: buildItemNamesPrompt(inputs, requirements.items),
+  };
+  NAMING_PROMPT_CACHE = { signature, grid, requirements, prompts };
   return NAMING_PROMPT_CACHE;
+}
+
+async function fillMissingNamingInputs(inputs) {
+  const missingFields = [];
+  if (!String(inputs.themeDetails || '').trim() && String(inputs.setting || '').trim()) {
+    missingFields.push('themeDetails');
+  }
+
+  if (!missingFields.length) return inputs;
+
+  const prompt = buildSetupAutofillPrompt(inputs, missingFields);
+  const parsed = JSON.parse(await fetchGridNamingPromptJson(prompt, 'setupAutofill'));
+  const nextInputs = { ...inputs };
+
+  for (const key of missingFields) {
+    if (parsed[key] != null && String(parsed[key]).trim()) {
+      nextInputs[key] = String(parsed[key]).trim();
+    }
+  }
+
+  applyNamingPromptInputs(nextInputs);
+  if (typeof persistThemeLastSession === 'function') persistThemeLastSession();
+  return nextInputs;
 }
 
 function togglePromptDebug() {
@@ -56,21 +156,21 @@ function togglePromptDebug() {
 
   if (div.style.display !== 'none') {
     div.style.display = 'none';
-    button.textContent = 'Show AI Prompt';
+    button.textContent = 'Show AI Prompts';
     return;
   }
 
   const inputs = getNamingPromptInputs();
-  if (!inputs.theme) {
-    statusDiv.innerHTML = '<span class="danger-txt">Theme is required to build the AI prompt.</span>';
+  if (!inputs.setting && !inputs.themeDetails) {
+    statusDiv.innerHTML = '<span class="danger-txt">Setting or Theme Details are required to build the AI prompts.</span>';
     return;
   }
 
   const request = buildCachedNamingRequest(inputs);
-  div.value = request.prompt;
+  div.value = JSON.stringify(request.prompts, null, 2);
   div.style.display = 'block';
-  button.textContent = 'Hide AI Prompt';
-  statusDiv.innerHTML = '<span class="info-txt">This is the exact prompt that will be sent by the next map generation, unless you edit the setup fields.</span>';
+  button.textContent = 'Hide AI Prompts';
+  statusDiv.innerHTML = '<span class="info-txt">These are the exact prompts that will be sent by the next name generation, unless you edit the setup fields.</span>';
 }
 
 function initState(className) {
@@ -107,6 +207,254 @@ function initState(className) {
 
 function rollD(n) { return Math.floor(Math.random() * n) + 1; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function attrLabel(attr) {
+  if (attr === 'perception') return 'Agility';
+  return attr.charAt(0).toUpperCase() + attr.slice(1);
+}
+
+function promptAttrKey(attr) {
+  return attr === 'perception' ? 'agility' : attr;
+}
+
+function buildThemeSummary(inputs) {
+  return [inputs.setting, inputs.themeDetails].filter(Boolean).join('. ');
+}
+
+function emptyTierCounts() {
+  return { Easy: 0, Medium: 0, Hard: 0, 'Very Hard': 0 };
+}
+
+function emptyCurseCounts() {
+  return {
+    power: { '-1': 0, '-2': 0 },
+    agility: { '-1': 0, '-2': 0 },
+    persuasion: { '-1': 0, '-2': 0 },
+  };
+}
+
+function defaultCursePoolTemplate() {
+  return {
+    power: { '-1': [], '-2': [] },
+    perception: { '-1': [], '-2': [] },
+    persuasion: { '-1': [], '-2': [] },
+  };
+}
+
+function buildCurseGenerationRequirements() {
+  return {
+    total: 15,
+    magnitude1Share: 0.8,
+    magnitude2Share: 0.2,
+    power: { '-1': 4, '-2': 1 },
+    agility: { '-1': 4, '-2': 1 },
+    persuasion: { '-1': 4, '-2': 1 },
+  };
+}
+
+function emptyItemCounts() {
+  return {
+    power: { Weak: 0, Strong: 0 },
+    agility: { Weak: 0, Strong: 0 },
+    persuasion: { Weak: 0, Strong: 0 },
+    curseClear: 0,
+  };
+}
+
+function buildNamingRequirements(grid) {
+  const requirements = {
+    enemies: emptyTierCounts(),
+    npcs: emptyTierCounts(),
+    curses: buildCurseGenerationRequirements(),
+    items: emptyItemCounts(),
+  };
+
+  const addItemNeed = (item) => {
+    if (!item) return;
+    if (item.type === 'curseClear') {
+      requirements.items.curseClear += 1;
+      return;
+    }
+    const attr = promptAttrKey(item.attribute || 'power');
+    const strength = (Number(item.magnitude) || 1) <= 2 ? 'Weak' : 'Strong';
+    requirements.items[attr][strength] += 1;
+  };
+
+  for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
+    const cell = grid.cells[y][x];
+    const t = cell.type;
+    const d = cell.data;
+    if (t === 'enemy') {
+      requirements.enemies[getDifficultyCategory(d.power)] += 1;
+    } else if (t === 'treasure') {
+      addItemNeed(d.rewardItem);
+    } else if (t === 'npc') {
+      requirements.npcs[getDifficultyCategory(d.check)] += 1;
+      addItemNeed(d.rewardItem);
+    } else if (t === 'item') {
+      addItemNeed(d.pickup);
+    }
+  }
+
+  return requirements;
+}
+
+function coerceStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+}
+
+function normalizeGeneratedNamePools(raw) {
+  const enemySource = raw && raw.enemies ? raw.enemies : {};
+  const npcSource = raw && raw.npcs ? raw.npcs : {};
+  const curseSource = raw && (raw.curses || raw.statuses) ? (raw.curses || raw.statuses) : {};
+  const itemSource = raw && raw.items ? raw.items : {};
+  const legacyClearItems = [
+    ...(itemSource.power && itemSource.power.Clear ? itemSource.power.Clear : []),
+    ...(itemSource.perception && itemSource.perception.Clear ? itemSource.perception.Clear : []),
+    ...(itemSource.agility && itemSource.agility.Clear ? itemSource.agility.Clear : []),
+    ...(itemSource.persuasion && itemSource.persuasion.Clear ? itemSource.persuasion.Clear : []),
+  ];
+
+  return {
+    enemies: {
+      Easy: coerceStringArray(enemySource.Easy),
+      Medium: coerceStringArray(enemySource.Medium),
+      Hard: coerceStringArray(enemySource.Hard),
+      'Very Hard': coerceStringArray(enemySource['Very Hard']),
+    },
+    npcs: {
+      Easy: coerceStringArray(npcSource.Easy),
+      Medium: coerceStringArray(npcSource.Medium),
+      Hard: coerceStringArray(npcSource.Hard),
+      'Very Hard': coerceStringArray(npcSource['Very Hard']),
+    },
+    curses: {
+      power: {
+        '-1': coerceStringArray(curseSource.power && curseSource.power['-1']),
+        '-2': coerceStringArray(curseSource.power && curseSource.power['-2']),
+      },
+      perception: {
+        '-1': coerceStringArray((curseSource.perception && curseSource.perception['-1']) || (curseSource.agility && curseSource.agility['-1'])),
+        '-2': coerceStringArray((curseSource.perception && curseSource.perception['-2']) || (curseSource.agility && curseSource.agility['-2'])),
+      },
+      persuasion: {
+        '-1': coerceStringArray(curseSource.persuasion && curseSource.persuasion['-1']),
+        '-2': coerceStringArray(curseSource.persuasion && curseSource.persuasion['-2']),
+      },
+    },
+    items: {
+      power: {
+        Weak: coerceStringArray(itemSource.power && itemSource.power.Weak),
+        Strong: coerceStringArray(itemSource.power && itemSource.power.Strong),
+      },
+      perception: {
+        Weak: coerceStringArray((itemSource.perception && itemSource.perception.Weak) || (itemSource.agility && itemSource.agility.Weak)),
+        Strong: coerceStringArray((itemSource.perception && itemSource.perception.Strong) || (itemSource.agility && itemSource.agility.Strong)),
+      },
+      persuasion: {
+        Weak: coerceStringArray(itemSource.persuasion && itemSource.persuasion.Weak),
+        Strong: coerceStringArray(itemSource.persuasion && itemSource.persuasion.Strong),
+      },
+      curseClear: coerceStringArray(itemSource.curseClear || legacyClearItems),
+    },
+  };
+}
+
+function shuffleCopy(arr) {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function cloneCursePools(pools) {
+  const src = pools || defaultCursePoolTemplate();
+  return {
+    power: { '-1': [...(src.power && src.power['-1'] ? src.power['-1'] : [])], '-2': [...(src.power && src.power['-2'] ? src.power['-2'] : [])] },
+    perception: { '-1': [...(src.perception && src.perception['-1'] ? src.perception['-1'] : [])], '-2': [...(src.perception && src.perception['-2'] ? src.perception['-2'] : [])] },
+    persuasion: { '-1': [...(src.persuasion && src.persuasion['-1'] ? src.persuasion['-1'] : [])], '-2': [...(src.persuasion && src.persuasion['-2'] ? src.persuasion['-2'] : [])] },
+  };
+}
+
+function buildCursePoolsFromNegativeStatusPool() {
+  const pools = defaultCursePoolTemplate();
+  for (const status of NEGATIVE_STATUS_POOL) {
+    if (!pools[status.attribute]) continue;
+    const mag = String(status.magnitude);
+    if (!pools[status.attribute][mag]) continue;
+    pools[status.attribute][mag].push(status.name);
+  }
+  return pools;
+}
+
+function setRuntimeCursePools(cursePools) {
+  GENERATED_CURSE_POOLS = cloneCursePools(cursePools);
+  AVAILABLE_CURSE_POOLS = {
+    power: { '-1': shuffleCopy(GENERATED_CURSE_POOLS.power['-1']), '-2': shuffleCopy(GENERATED_CURSE_POOLS.power['-2']) },
+    perception: { '-1': shuffleCopy(GENERATED_CURSE_POOLS.perception['-1']), '-2': shuffleCopy(GENERATED_CURSE_POOLS.perception['-2']) },
+    persuasion: { '-1': shuffleCopy(GENERATED_CURSE_POOLS.persuasion['-1']), '-2': shuffleCopy(GENERATED_CURSE_POOLS.persuasion['-2']) },
+  };
+}
+
+function ensureRuntimeCursePools() {
+  if (!GENERATED_CURSE_POOLS || !AVAILABLE_CURSE_POOLS) {
+    setRuntimeCursePools(buildCursePoolsFromNegativeStatusPool());
+  }
+}
+
+function buildWorkingNamePools(namePools) {
+  const pools = normalizeGeneratedNamePools(namePools || {});
+  return {
+    enemies: {
+      Easy: shuffleCopy(pools.enemies.Easy),
+      Medium: shuffleCopy(pools.enemies.Medium),
+      Hard: shuffleCopy(pools.enemies.Hard),
+      'Very Hard': shuffleCopy(pools.enemies['Very Hard']),
+    },
+    npcs: {
+      Easy: shuffleCopy(pools.npcs.Easy),
+      Medium: shuffleCopy(pools.npcs.Medium),
+      Hard: shuffleCopy(pools.npcs.Hard),
+      'Very Hard': shuffleCopy(pools.npcs['Very Hard']),
+    },
+    curses: {
+      power: { '-1': shuffleCopy(pools.curses.power['-1']), '-2': shuffleCopy(pools.curses.power['-2']) },
+      perception: { '-1': shuffleCopy(pools.curses.perception['-1']), '-2': shuffleCopy(pools.curses.perception['-2']) },
+      persuasion: { '-1': shuffleCopy(pools.curses.persuasion['-1']), '-2': shuffleCopy(pools.curses.persuasion['-2']) },
+    },
+    items: {
+      power: { Weak: shuffleCopy(pools.items.power.Weak), Strong: shuffleCopy(pools.items.power.Strong) },
+      perception: { Weak: shuffleCopy(pools.items.perception.Weak), Strong: shuffleCopy(pools.items.perception.Strong) },
+      persuasion: { Weak: shuffleCopy(pools.items.persuasion.Weak), Strong: shuffleCopy(pools.items.persuasion.Strong) },
+      curseClear: shuffleCopy(pools.items.curseClear),
+    },
+  };
+}
+
+function drawPoolName(pool, fallbackFn) {
+  if (pool && pool.length) return pool.pop();
+  return fallbackFn();
+}
+
+function applyGeneratedItemName(item, workingPools) {
+  if (!item) return;
+  if (item.type === 'curseClear') {
+    item.name = drawPoolName(workingPools.items.curseClear, () => pick(CURSE_CLEAR_ITEM_NAMES));
+    return;
+  }
+
+  item.type = 'buff';
+  if (!item.attribute) item.attribute = pick(['power', 'perception', 'persuasion']);
+  item.magnitude = Math.max(1, Math.min(5, Number(item.magnitude) || 1));
+  const strength = item.magnitude <= 2 ? 'Weak' : 'Strong';
+  item.name = drawPoolName(
+    workingPools.items[item.attribute][strength],
+    () => pick(ITEM_NAMES[item.attribute][strength]),
+  );
+}
 
 function getEff() {
   const p = G.player;
@@ -207,7 +555,7 @@ function rollItemData() {
 
 function itemDescription(item) {
   if (item.type === 'curseClear') return 'Removes one curse';
-  return `+${item.magnitude} ${item.attribute}`;
+  return `+${item.magnitude} ${attrLabel(item.attribute)}`;
 }
 
 function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
@@ -245,8 +593,11 @@ function pickFallbackCurseName(attribute, magnitude) {
 
 function applyCurseFromEncounter(data) {
   const fc = data.failCurse;
-  const raw = data.failCurseName && String(data.failCurseName).trim();
-  const name = raw || pickFallbackCurseName(fc.attribute, fc.magnitude);
+  ensureRuntimeCursePools();
+  const bucket = AVAILABLE_CURSE_POOLS[fc.attribute] && AVAILABLE_CURSE_POOLS[fc.attribute][String(fc.magnitude)];
+  const name = bucket && bucket.length
+    ? bucket.pop()
+    : pickFallbackCurseName(fc.attribute, fc.magnitude);
   const s = { name, attribute: fc.attribute, magnitude: fc.magnitude };
   G.player.statuses.push(s);
   return s;
@@ -382,7 +733,6 @@ function generateGrid() {
           power: diff,
           failCurse: { attribute: failAttr, magnitude: -1 },
           name: '',
-          failCurseName: '',
         };
       } else if (t === 'treasure') {
         const failMag = rollD(2);
@@ -390,8 +740,6 @@ function generateGrid() {
         cells[y][x].data = {
           difficulty: diff,
           failCurse: { attribute: failAttr, magnitude: -failMag },
-          trapName: '',
-          failCurseName: '',
           rewardItem: rollItemData(),
         };
       } else if (t === 'npc') {
@@ -400,7 +748,6 @@ function generateGrid() {
           check: diff,
           failCurse: { attribute: failAttr, magnitude: -2 },
           name: '',
-          failCurseName: '',
           rewardItem: rollItemData(),
         };
       } else if (t === 'item') {
@@ -450,8 +797,6 @@ function fillDefaultNames(grid) {
       const cat = getDifficultyCategory(d.power);
       if (!d.name) d.name = pick(ENEMY_NAMES[cat]);
     } else if (t === 'treasure') {
-      const cat = getDifficultyCategory(d.difficulty);
-      if (!d.trapName) d.trapName = pick(TRAP_NAMES[cat]);
       fillDefaultItemName(d.rewardItem);
     } else if (t === 'npc') {
       const cat = getDifficultyCategory(d.check);
@@ -463,86 +808,24 @@ function fillDefaultNames(grid) {
   }
 }
 
-function buildNamingManifest(grid) {
-  const slots = [];
-  let slotIndex = 0;
+function applyNamePoolsToGrid(grid, namePools) {
+  const workingPools = buildWorkingNamePools(namePools);
+
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
     const cell = grid.cells[y][x];
     const t = cell.type;
-    if (!t || t === 'wall' || t === 'start' || t === 'exit') continue;
     const d = cell.data;
     if (t === 'enemy') {
-      slots.push({
-        slotIndex: slotIndex++,
-        x,
-        y,
-        encounterType: 'enemy',
-        difficultyTier: getDifficultyCategory(d.power),
-        powerNumeric: d.power,
-        curseOnFailure: { attribute: d.failCurse.attribute, magnitude: d.failCurse.magnitude },
-      });
+      const cat = getDifficultyCategory(d.power);
+      d.name = drawPoolName(workingPools.enemies[cat], () => pick(ENEMY_NAMES[cat]));
     } else if (t === 'treasure') {
-      slots.push({
-        slotIndex: slotIndex++,
-        x,
-        y,
-        encounterType: 'treasure',
-        difficultyTier: getDifficultyCategory(d.difficulty),
-        concealmentNumeric: d.difficulty,
-        curseOnFailure: { attribute: d.failCurse.attribute, magnitude: d.failCurse.magnitude },
-        rewardIfSuccess: d.rewardItem.type === 'curseClear'
-          ? { type: 'curseClear', effect: 'remove one curse chosen by the player' }
-          : { type: 'buff', attribute: d.rewardItem.attribute, magnitude: d.rewardItem.magnitude },
-      });
+      applyGeneratedItemName(d.rewardItem, workingPools);
     } else if (t === 'npc') {
-      slots.push({
-        slotIndex: slotIndex++,
-        x,
-        y,
-        encounterType: 'npc',
-        difficultyTier: getDifficultyCategory(d.check),
-        persuasionCheckNumeric: d.check,
-        curseOnFailure: { attribute: d.failCurse.attribute, magnitude: d.failCurse.magnitude },
-        rewardIfSuccess: d.rewardItem.type === 'curseClear'
-          ? { type: 'curseClear', effect: 'remove one curse chosen by the player' }
-          : { type: 'buff', attribute: d.rewardItem.attribute, magnitude: d.rewardItem.magnitude },
-      });
+      const cat = getDifficultyCategory(d.check);
+      d.name = drawPoolName(workingPools.npcs[cat], () => pick(NPC_NAMES[cat]));
+      applyGeneratedItemName(d.rewardItem, workingPools);
     } else if (t === 'item') {
-      slots.push({
-        slotIndex: slotIndex++,
-        x,
-        y,
-        encounterType: 'item',
-        pickup: d.pickup.type === 'curseClear'
-          ? { type: 'curseClear', effect: 'remove one curse chosen by the player' }
-          : { type: 'buff', attribute: d.pickup.attribute, magnitude: d.pickup.magnitude },
-      });
-    }
-  }
-  return { slots };
-}
-
-function applySlotsToGrid(grid, slots) {
-  if (!Array.isArray(slots)) return;
-  for (const s of slots) {
-    const x = s.x;
-    const y = s.y;
-    if (x == null || y == null || y < 0 || y >= GRID_HEIGHT || x < 0 || x >= GRID_WIDTH) continue;
-    const cell = grid.cells[y][x];
-    const d = cell.data;
-    if (cell.type === 'enemy') {
-      if (s.enemyName) d.name = String(s.enemyName).trim();
-      if (s.curseName) d.failCurseName = String(s.curseName).trim();
-    } else if (cell.type === 'treasure') {
-      if (s.trapName) d.trapName = String(s.trapName).trim();
-      if (s.curseName) d.failCurseName = String(s.curseName).trim();
-      if (s.rewardItemName && d.rewardItem) d.rewardItem.name = String(s.rewardItemName).trim();
-    } else if (cell.type === 'npc') {
-      if (s.npcName) d.name = String(s.npcName).trim();
-      if (s.curseName) d.failCurseName = String(s.curseName).trim();
-      if (s.rewardItemName && d.rewardItem) d.rewardItem.name = String(s.rewardItemName).trim();
-    } else if (cell.type === 'item' && d.pickup && s.itemName) {
-      d.pickup.name = String(s.itemName).trim();
+      applyGeneratedItemName(d.pickup, workingPools);
     }
   }
 }
@@ -637,7 +920,7 @@ async function resolveEnemy(data) {
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${s.attribute} ${s.magnitude})</span>`;
+    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
@@ -666,7 +949,7 @@ async function startTreasure(data, canFlee) {
   renderInputPanel();
   const eff = getEff();
   const diffCat = getDifficultyCategory(data.difficulty);
-  const defaultText = `You spot something in the shadows — a hidden cache, or perhaps a snare. The Difficulty is <span class="highlight">${diffCat}</span>. Your Perception is <span class="highlight">${eff.perception}</span>. Proceed carefully…`;
+  const defaultText = `You spot something in the shadows — a hidden cache, or perhaps a snare. The Difficulty is <span class="highlight">${diffCat}</span>. Your Agility is <span class="highlight">${eff.perception}</span>. Proceed carefully…`;
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
   const item = data.rewardItem
@@ -695,11 +978,11 @@ async function resolveTreasure(data) {
   let s = null;
   if (won) {
     item = addItemFixed(data.rewardItem);
-    mechText = `<span class="good-txt">Your eye (Perception ${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: <em>${item.name}</em> (${itemDescription(item)})</span>`;
+    mechText = `<span class="good-txt">Your agility (${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: <em>${item.name}</em> (${itemDescription(item)})</span>`;
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">You blunder into <em>${data.trapName}</em> (Difficulty ${data.difficulty} vs Perception ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${s.attribute} ${s.magnitude})</span>`;
+    mechText = `<span class="danger-txt">You trigger the treasure's trap (Difficulty ${data.difficulty} vs Agility ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
@@ -761,7 +1044,7 @@ async function resolveNPC(data) {
   } else {
     item = data.rewardItem.name;
     s = applyCurseFromEncounter(data);
-    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${s.attribute} ${s.magnitude})</span>`;
+    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
@@ -886,7 +1169,7 @@ async function useCurseClearItem(index) {
     return;
   }
 
-  const choices = curses.map((s, i) => `${i + 1}. ${s.name} (${s.attribute} ${s.magnitude})`).join('\n');
+  const choices = curses.map((s, i) => `${i + 1}. ${s.name} (${attrLabel(s.attribute)} ${s.magnitude})`).join('\n');
   const raw = prompt(`Choose a curse to remove with ${item.name}:\n${choices}`, '1');
   if (raw == null) return;
   const curseIndex = Number(raw) - 1;
@@ -897,6 +1180,9 @@ async function useCurseClearItem(index) {
   }
 
   const removed = curses.splice(curseIndex, 1)[0];
+  ensureRuntimeCursePools();
+  const bucket = AVAILABLE_CURSE_POOLS[removed.attribute] && AVAILABLE_CURSE_POOLS[removed.attribute][String(removed.magnitude)];
+  if (bucket) bucket.push(removed.name);
   G.player.inventory.splice(index, 1);
   addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');
   await refreshPhysicalDescription(`Removed curse ${removed.name} with ${item.name}.`);
@@ -906,7 +1192,7 @@ async function useCurseClearItem(index) {
 function applyLevelUp(attr) {
   if (G.player.base[attr] >= MAX_ATTR) return;
   G.player.base[attr] = Math.min(MAX_ATTR, G.player.base[attr] + 1);
-  addLog(`<span class="good-txt">You improve your <em>${attr}</em> — base now ${G.player.base[attr]}.</span>`, 'event-level');
+  addLog(`<span class="good-txt">You improve your <em>${attrLabel(attr)}</em> — base now ${G.player.base[attr]}.</span>`, 'event-level');
   G.phase = 'playing';
   renderUI();
 }
@@ -925,14 +1211,14 @@ function renderStatusPanel() {
   const eff = getEff();
 
   const curseHtml = p.statuses.length
-    ? p.statuses.map(s => `<span class="status-tag">${s.name}: ${s.attribute} ${s.magnitude}</span>`).join('')
+    ? p.statuses.map(s => `<span class="status-tag">${s.name}: ${attrLabel(s.attribute)} ${s.magnitude}</span>`).join('')
     : '<span class="empty-note">None</span>';
 
   const equippedItems = p.inventory.filter(item => item.type === 'buff' && item.equipped);
   const activeHtml = equippedItems.length
     ? equippedItems.map(e =>
       `<span class="status-tag" style="border-color:rgba(90,170,208,0.5);background:rgba(58,96,128,0.15);color:#7ecfee;">
-          ${e.name}: +${e.magnitude} ${e.attribute}
+          ${e.name}: +${e.magnitude} ${attrLabel(e.attribute)}
         </span>`).join('')
     : '<span class="empty-note">None</span>';
 
@@ -963,7 +1249,7 @@ function renderStatusPanel() {
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     ${attrLine('Power', p.base.power, eff.power)}
-    ${attrLine('Perception', p.base.perception, eff.perception)}
+    ${attrLine('Agility', p.base.perception, eff.perception)}
     ${attrLine('Persuasion', p.base.persuasion, eff.persuasion)}
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Equipped Items (${equippedItems.length} / ${MAX_EQUIPPED_ITEMS})</div>
@@ -1031,7 +1317,7 @@ function renderInputPanel() {
       const next = Math.min(MAX_ATTR, cur + 1);
       const cap = cur >= MAX_ATTR;
       return `<button class="btn btn-attr" onclick="applyLevelUp('${attr}')" ${cap ? 'disabled' : ''}>
-        + ${attr.charAt(0).toUpperCase() + attr.slice(1)} &nbsp;(${cur} → ${next})
+        + ${attrLabel(attr)} &nbsp;(${cur} → ${next})
       </button>`;
     }).join('');
     return;
@@ -1084,41 +1370,76 @@ function renderUI() {
 
 async function generateTheme() {
   const { apiKey } = getApiFromDom();
-  const inputs = getNamingPromptInputs();
+  let inputs = getNamingPromptInputs();
   const statusDiv = document.getElementById('ai-status');
+  const startedAt = typeof nowMs === 'function' ? nowMs() : Date.now();
 
-  if (!apiKey || !inputs.theme) {
-    statusDiv.innerHTML = '<span class="danger-txt">API Key and Theme are required.</span>';
+  if (!apiKey || (!inputs.setting && !inputs.themeDetails)) {
+    statusDiv.innerHTML = '<span class="danger-txt">API Key and either Setting or Theme Details are required.</span>';
     return;
   }
 
-  AI_CONTEXT.theme = inputs.theme;
-  AI_CONTEXT.characterDesc = inputs.charDesc;
-
-  statusDiv.innerHTML = 'Generating dungeon layout and naming encounters… please wait.';
+  statusDiv.innerHTML = 'Preparing setup and generating naming pools… please wait.';
   document.getElementById('btn-generate').disabled = true;
+  if (typeof resetApiTimingLog === 'function') resetApiTimingLog('generateTheme');
 
   try {
-    const request = buildCachedNamingRequest(inputs);
-    const content = await fetchGridNamingPromptJson(request.prompt);
-    const parsed = JSON.parse(content);
-    const slots = parsed.slots;
-    if (!Array.isArray(slots)) throw new Error('Model response missing "slots" array');
+    inputs = await fillMissingNamingInputs(inputs);
+    AI_CONTEXT.theme = buildThemeSummary(inputs);
+    AI_CONTEXT.characterDesc = inputs.charDesc;
 
-    applySlotsToGrid(request.grid, slots);
+    const request = buildCachedNamingRequest(inputs);
+    const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw] = await Promise.all([
+      fetchGridNamingPromptJson(request.prompts.enemies, 'enemyNames'),
+      fetchGridNamingPromptJson(request.prompts.npcs, 'npcNames'),
+      fetchGridNamingPromptJson(request.prompts.curses, 'curseNames'),
+      fetchGridNamingPromptJson(request.prompts.items, 'itemNames'),
+    ]);
+    const enemyNames = JSON.parse(enemyNamesRaw);
+    const npcNames = JSON.parse(npcNamesRaw);
+    const curseNames = JSON.parse(curseNamesRaw);
+    const itemNames = JSON.parse(itemNamesRaw);
+    const namePools = normalizeGeneratedNamePools({
+      ...enemyNames,
+      ...npcNames,
+      ...curseNames,
+      ...itemNames,
+    });
+
+    applyNamePoolsToGrid(request.grid, namePools);
+    setRuntimeCursePools(namePools.curses);
     fillDefaultNames(request.grid);
     PENDING_NAMED_GRID = request.grid;
     NAMING_PROMPT_CACHE = null;
 
     const debugDiv = document.getElementById('debug-names');
-    debugDiv.value = JSON.stringify({ version: 2, slots }, null, 2);
+    debugDiv.value = JSON.stringify({ version: 3, namePools }, null, 2);
     document.getElementById('btn-debug').style.display = 'block';
+    if (typeof recordApiTiming === 'function') {
+      recordApiTiming({
+        label: 'generateThemeTotal',
+        durationMs: (typeof nowMs === 'function' ? nowMs() : Date.now()) - startedAt,
+        kind: 'total',
+        ok: true,
+      });
+    }
+    refreshTimingDebug();
 
-    statusDiv.innerHTML = '<span class="good-txt">Dungeon mapped and encounters named. Edit JSON if you wish, then proceed.</span>';
+    statusDiv.innerHTML = '<span class="good-txt">Dungeon mapped and naming pools generated. Edit JSON if you wish, then proceed.</span>';
     document.getElementById('btn-generate').disabled = false;
     document.getElementById('btn-proceed').textContent = 'Proceed';
   } catch (err) {
     PENDING_NAMED_GRID = null;
+    if (typeof recordApiTiming === 'function') {
+      recordApiTiming({
+        label: 'generateThemeTotal',
+        durationMs: (typeof nowMs === 'function' ? nowMs() : Date.now()) - startedAt,
+        kind: 'total',
+        ok: false,
+        extra: err.message || 'generation failed',
+      });
+    }
+    refreshTimingDebug();
     statusDiv.innerHTML = `<span class="danger-txt">Failed to generate: ${err.message}</span>`;
     document.getElementById('btn-generate').disabled = false;
   }
@@ -1127,37 +1448,50 @@ async function generateTheme() {
 function skipTheme() {
   if (typeof persistApiLastSession === 'function') persistApiLastSession();
   if (typeof persistThemeLastSession === 'function') persistThemeLastSession();
+  const inputs = getNamingPromptInputs();
+  AI_CONTEXT.theme = buildThemeSummary(inputs);
+  AI_CONTEXT.characterDesc = inputs.charDesc;
 
   const debugDiv = document.getElementById('debug-names');
   const raw = debugDiv.value.trim();
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed.version === 2 && Array.isArray(parsed.slots)) {
+      if (parsed.version === 3 && parsed.namePools) {
         if (!PENDING_NAMED_GRID) {
-          alert('No generated map is loaded. Click "Generate map & names" first, or remove "version": 2 from the JSON to use Skip with manual pool overrides.');
+          alert('No generated map is loaded. Click "Generate map & names" first, or remove "version": 3 from the JSON to use manual pool overrides.');
           return;
         }
-        applySlotsToGrid(PENDING_NAMED_GRID, parsed.slots);
+        applyNamePoolsToGrid(PENDING_NAMED_GRID, parsed.namePools);
+        setRuntimeCursePools(normalizeGeneratedNamePools(parsed.namePools).curses);
         fillDefaultNames(PENDING_NAMED_GRID);
       } else {
         PENDING_NAMED_GRID = null;
         if (parsed.enemies) ENEMY_NAMES = parsed.enemies;
         if (parsed.npcs) NPC_NAMES = parsed.npcs;
-        if (parsed.traps) TRAP_NAMES = parsed.traps;
-        if (parsed.items) ITEM_NAMES = parsed.items;
+        if (parsed.items) {
+          const items = normalizeGeneratedNamePools({ items: parsed.items }).items;
+          ITEM_NAMES = {
+            power: { ...ITEM_NAMES.power, ...items.power },
+            perception: { ...ITEM_NAMES.perception, ...items.perception },
+            persuasion: { ...ITEM_NAMES.persuasion, ...items.persuasion },
+          };
+          if (items.curseClear.length) CURSE_CLEAR_ITEM_NAMES = items.curseClear;
+        }
         const curseNames = parsed.curses || parsed.statuses;
         if (curseNames) {
           NEGATIVE_STATUS_POOL = [];
+          const normalizedCurses = normalizeGeneratedNamePools({ curses: curseNames }).curses;
           for (const attr of ['power', 'perception', 'persuasion']) {
             for (const mag of ['-1', '-2']) {
-              if (curseNames[attr] && curseNames[attr][mag]) {
-                for (const name of curseNames[attr][mag]) {
+              if (normalizedCurses[attr] && normalizedCurses[attr][mag]) {
+                for (const name of normalizedCurses[attr][mag]) {
                   NEGATIVE_STATUS_POOL.push({ name, attribute: attr, magnitude: parseInt(mag) });
                 }
               }
             }
           }
+          setRuntimeCursePools(normalizedCurses);
         }
       }
     } catch (err) {

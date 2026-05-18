@@ -70,12 +70,6 @@ let NPC_NAMES = {
   'Hard': ['a suspicious hermit', 'an elusive thief'],
   'Very Hard': ['a cryptic oracle', 'a powerful wizard']
 };
-let TRAP_NAMES = {
-  'Easy': ['a tripwire', 'a loose floorboard'],
-  'Medium': ['a pit trap', 'a hidden snare'],
-  'Hard': ['a poison dart mechanism', 'a swinging blade trap'],
-  'Very Hard': ['a crushing ceiling plate', 'a corrosive gas vent']
-};
 
 function getDifficultyCategory(val) {
   if (val <= 5) return 'Easy';

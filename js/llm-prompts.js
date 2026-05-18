@@ -1,5 +1,15 @@
 // Strings and templates for LLM requests (no network I/O).
 
+function promptAttrLabel(attr) {
+  if (attr === 'perception') return 'agility';
+  return attr;
+}
+
+function promptAttrDisplay(attr) {
+  const label = promptAttrLabel(attr);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function buildNarratorFullPrompt(aiContext, promptText) {
   let themeContext = `The theme is "${aiContext.theme}".`;
 
@@ -68,10 +78,10 @@ Describe the player picking up the item, in a short paragraph`;
 
 function buildPhysicalDescriptionPrompt(data) {
   const equippedItems = data.equippedItems.length
-    ? data.equippedItems.map(item => `${item.name} (+${item.magnitude} ${item.attribute})`).join(', ')
+    ? data.equippedItems.map(item => `${item.name} (+${item.magnitude} ${promptAttrDisplay(item.attribute)})`).join(', ')
     : 'none';
   const curses = data.curses.length
-    ? data.curses.map(curse => `${curse.name} (${curse.attribute} ${curse.magnitude})`).join(', ')
+    ? data.curses.map(curse => `${curse.name} (${promptAttrDisplay(curse.attribute)} ${curse.magnitude})`).join(', ')
     : 'none';
 
   return `Update the player character's physical description for the game state.
@@ -85,57 +95,136 @@ Curses currently affecting the player: ${curses}
 Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible.`;
 }
 
-function buildThemeGeneratorContext(theme, curseTypes, charDesc) {
-  let promptContext = `The user has chosen the theme: "${theme}".`;
-  if (charDesc) promptContext += `\nCharacter Description: "${charDesc}"`;
-  if (curseTypes) {
-    promptContext += `\nCURSE NAMING GUIDELINES: Curses are: ${curseTypes}. Include all of these themes and types among the curses named, avoid repeating too many similar curses, (example: leather blindfold, soft blindfold, eyes glued shut. these are all too similar). Keep in mind the theme and character description provided. Curse names should be easy to understand, and direct. Avoid vague and complicated concepts, prefer simple things. For example: 'armor removed' would be good, while 'curse of uncertain protection' is bad."`;
+function buildNameGeneratorContext(inputs, detailKind) {
+  const setting = inputs.setting || 'fantasy';
+  let context = `Create names for a ${setting} setting.`;
+  if (inputs.themeDetails) context += ` Theme details: ${inputs.themeDetails}.`;
+  if (inputs.charDesc) context += ` Character context: ${inputs.charDesc}.`;
+
+  if (detailKind === 'enemy' && inputs.enemyDetails) {
+    context += ` The enemies found should include ${inputs.enemyDetails}.`;
   }
-  return promptContext;
+  if (detailKind === 'curse' && inputs.curseDetails) {
+    context += ` The curses should include ${inputs.curseDetails}.`;
+    context += ' Curse names should be easy to understand and direct. Avoid vague or overly abstract curse names.';
+  }
+  if (detailKind === 'item' && inputs.itemDetails) {
+    context += ` The items found should include ${inputs.itemDetails}.`;
+  }
+
+  return context;
 }
 
-function buildGridNamingPrompt(theme, curseTypes, charDesc, manifest) {
-  const promptContext = buildThemeGeneratorContext(theme, curseTypes, charDesc);
-  const manifestJson = JSON.stringify(manifest);
-  return `You are naming encounters, items, and curses for a grid-based dungeon crawler. ${promptContext}
+function buildEnemyNamesPrompt(inputs, requirements) {
+  const needsJson = JSON.stringify(requirements, null, 2);
+  return `You are naming enemies for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'enemy')}
 
-The dungeon map is already generated. Each slot below describes ONE cell that needs creative names. Names must fit the theme and character above.
+Generate exactly the requested number of enemy names for each difficulty tier. Easy enemies should sound minor or mundane. Very Hard enemies should sound dangerous or elite.
 
-Difficulty tiers are hints only: Easy encounters sound mundane or harmless; Very Hard sound intimidating or lethal. Stronger buff rewards should sound more potent than weaker ones. Curse-removal rewards should sound cleansing, restorative, protective, or otherwise suited to removing a curse.
+Enemy names must be short noun phrases and should usually include a lowercase article when natural, such as "a rusted sentry" or "an ash hound".
 
-Each slot lists curseOnFailure with exact attribute ("power", "perception", or "persuasion") and magnitude. Choose names for each curse based primarily on the theme chosen by the user, and the aforementioned curse naming guidelines. The attribute affected is os lesser importance when choosing the name of the curse. Your curse name must match that severity in tone (-2 worse than -1, and so forth).
+COUNTS NEEDED (JSON):
+${needsJson}
 
-INPUT MANIFEST (JSON):
-${manifestJson}
-
-Return ONLY valid JSON:
+Return ONLY valid JSON in this shape:
 {
-  "slots": [
-    {
-      "slotIndex": <number matching input>,
-      "x": <number>,
-      "y": <number>,
-      "encounterType": "enemy"|"treasure"|"npc"|"item",
-
-      For encounterType "enemy":
-      "enemyName": "<short phrase with article, e.g. a scarred vault-guard>",
-      "curseName": "<short curse label tied to this enemy; matches curseOnFailure, follow the CURSE NAMING GUIDELINES>",
-
-      For "treasure":
-      "trapName": "<trap label tied to concealment difficulty>",
-      "curseName": "<curse tied to this trap; matches curseOnFailure, follow the CURSE NAMING GUIDELINES>",
-      "rewardItemName": "<item found on success; if rewardIfSuccess.type is buff, match its attribute/magnitude/theme; if curseClear, make it sound like it removes one curse>",
-
-      For "npc":
-      "npcName": "<NPC with article>",
-      "curseName": "<curse tied to this NPC/rejection; matches curseOnFailure, follow the CURSE NAMING GUIDELINES>",
-      "rewardItemName": "<gift item on success; if rewardIfSuccess.type is buff, match its attribute/magnitude/theme; if curseClear, make it sound like it removes one curse>",
-
-      For "item":
-      "itemName": "<Items are physical objects. If pickup.type is buff, tie it to its attribute/magnitude; if curseClear, make it sound like it removes one curse>"
-    }
-  ]
+  "enemies": {
+    "Easy": ["<name>"],
+    "Medium": ["<name>"],
+    "Hard": ["<name>"],
+    "Very Hard": ["<name>"]
+  }
+}`;
 }
 
-Include exactly one object per manifest slot, same slotIndex/x/y/encounterType as provided. Use lowercase articles where natural.`;
+function buildNpcNamesPrompt(inputs, requirements) {
+  const needsJson = JSON.stringify(requirements, null, 2);
+  return `You are naming NPCs for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'npc')}
+
+Generate exactly the requested number of NPC names for each difficulty tier. Higher difficulty NPCs should sound more unusual, influential, elusive, or intimidating.
+
+NPC names must be short noun phrases and should usually include a lowercase article when natural, such as "a wounded surveyor" or "an ivory broker".
+
+COUNTS NEEDED (JSON):
+${needsJson}
+
+Return ONLY valid JSON in this shape:
+{
+  "npcs": {
+    "Easy": ["<name>"],
+    "Medium": ["<name>"],
+    "Hard": ["<name>"],
+    "Very Hard": ["<name>"]
+  }
+}`;
+}
+
+function buildCurseNamesPrompt(inputs, requirements) {
+  const needsJson = JSON.stringify(requirements, null, 2);
+  return `You are naming curses for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'curse')}
+
+Generate a reusable global pool of curse names for the whole run. Follow the requested weighted distribution exactly. Names for magnitude -2 should sound harsher than names for magnitude -1. The attribute affected matters less than clarity and tone, but the result should still feel appropriate for that category.
+
+COUNTS NEEDED (JSON):
+${needsJson}
+
+Return ONLY valid JSON in this shape:
+{
+  "curses": {
+    "power": { "-1": ["<name>"], "-2": ["<name>"] },
+    "agility": { "-1": ["<name>"], "-2": ["<name>"] },
+    "persuasion": { "-1": ["<name>"], "-2": ["<name>"] }
+  }
+}`;
+}
+
+function buildItemNamesPrompt(inputs, requirements) {
+  const needsJson = JSON.stringify(requirements, null, 2);
+  return `You are naming items for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'item')}
+
+Generate exactly the requested number of item names for each category. Buff items should sound like physical objects and should match their attribute and strength. Strong items should sound more potent than weak items. Curse-clear items should sound cleansing, restorative, protective, or purifying.
+
+COUNTS NEEDED (JSON):
+${needsJson}
+
+Return ONLY valid JSON in this shape:
+{
+  "items": {
+    "power": { "Weak": ["<name>"], "Strong": ["<name>"] },
+    "agility": { "Weak": ["<name>"], "Strong": ["<name>"] },
+    "persuasion": { "Weak": ["<name>"], "Strong": ["<name>"] },
+    "curseClear": ["<name>"]
+  }
+}`;
+}
+
+function buildSetupAutofillPrompt(inputs, missingFields) {
+  const existing = {
+    setting: inputs.setting || '',
+    themeDetails: inputs.themeDetails || '',
+    enemyDetails: inputs.enemyDetails || '',
+    curseDetails: inputs.curseDetails || '',
+    itemDetails: inputs.itemDetails || '',
+    charDesc: inputs.charDesc || '',
+  };
+  const missingJson = JSON.stringify(missingFields, null, 2);
+  const existingJson = JSON.stringify(existing, null, 2);
+  return `You are filling missing setup fields for a grid-based dungeon crawler generator.
+
+Use the existing information to infer concise, useful text for only the missing setup fields. Keep each field practical and brief. Do not overwrite fields that already have values.
+
+KNOWN FIELDS (JSON):
+${existingJson}
+
+MISSING FIELDS TO FILL (JSON ARRAY):
+${missingJson}
+
+Return ONLY valid JSON in this shape:
+{
+  "setting": "<only if requested>",
+  "themeDetails": "<only if requested>",
+  "enemyDetails": "<only if requested>",
+  "curseDetails": "<only if requested>",
+  "itemDetails": "<only if requested>"
+}`;
 }

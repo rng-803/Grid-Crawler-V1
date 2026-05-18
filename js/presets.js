@@ -56,20 +56,28 @@ function saveThemePresetList(arr) {
 
 function getCurrentThemeFields() {
   return {
-    theme: document.getElementById('game-theme').value.trim(),
-    curseTypes: document.getElementById('game-curse-types').value.trim(),
+    setting: document.getElementById('game-setting').value.trim(),
+    themeDetails: document.getElementById('game-theme-details').value.trim(),
+    enemyDetails: document.getElementById('game-enemy-details').value.trim(),
+    curseDetails: document.getElementById('game-curse-details').value.trim(),
+    itemDetails: document.getElementById('game-item-details').value.trim(),
     characterDesc: document.getElementById('game-char-desc').value.trim(),
   };
 }
 
 function applyThemeFields(o) {
   if (!o) return;
-  const themeParts = [];
-  if (o.theme != null && String(o.theme).trim()) themeParts.push(String(o.theme).trim());
-  if (o.themeDetails != null && String(o.themeDetails).trim()) themeParts.push(String(o.themeDetails).trim());
-  document.getElementById('game-theme').value = themeParts.join('\n\n');
-  document.getElementById('game-curse-types').value = o.curseTypes != null ? o.curseTypes : '';
+  document.getElementById('game-setting').value = o.setting != null ? o.setting : '';
+  document.getElementById('game-theme-details').value = o.themeDetails != null
+    ? o.themeDetails
+    : (o.theme != null ? o.theme : '');
+  document.getElementById('game-enemy-details').value = o.enemyDetails != null ? o.enemyDetails : '';
+  document.getElementById('game-curse-details').value = o.curseDetails != null
+    ? o.curseDetails
+    : (o.curseTypes != null ? o.curseTypes : '');
+  document.getElementById('game-item-details').value = o.itemDetails != null ? o.itemDetails : '';
   document.getElementById('game-char-desc').value = o.characterDesc != null ? o.characterDesc : '';
+  if (typeof syncAdvancedSetupVisibility === 'function') syncAdvancedSetupVisibility();
 }
 
 function persistThemeLastSession() {
@@ -232,12 +240,7 @@ function applySelectedThemePreset() {
   if (!name) return;
   const found = loadThemePresetList().find((p) => p.name === name);
   if (found) {
-    applyThemeFields({
-      theme: found.theme,
-      themeDetails: found.themeDetails,
-      curseTypes: found.curseTypes,
-      characterDesc: found.characterDesc,
-    });
+    applyThemeFields(found);
     persistThemeLastSession();
   }
 }
@@ -245,7 +248,7 @@ function applySelectedThemePreset() {
 function saveCurrentThemePreset() {
   const suggestion = document.getElementById('theme-preset-select').value || '';
   const nameInput = prompt(
-    'Name for this story preset (theme + curses + character):',
+    'Name for this story preset (setting + theme + details + character):',
     suggestion,
   );
   if (!nameInput || !String(nameInput).trim()) return;
@@ -288,7 +291,18 @@ function restoreSessionsFromStorage() {
 }
 
 function wirePresetAutosave() {
-  const ids = ['api-key', 'api-url', 'api-model', 'game-api-model', 'game-theme', 'game-curse-types', 'game-char-desc'];
+  const ids = [
+    'api-key',
+    'api-url',
+    'api-model',
+    'game-api-model',
+    'game-setting',
+    'game-theme-details',
+    'game-enemy-details',
+    'game-curse-details',
+    'game-item-details',
+    'game-char-desc',
+  ];
   for (const id of ids) {
     const el = document.getElementById(id);
     if (!el) continue;

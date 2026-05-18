@@ -733,8 +733,13 @@ async function startNPC(data, canFlee) {
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
 
   const prompt = buildNpcStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
+  // const narration = await generateNarration(AI_CONTEXT, prompt);
+  //narration streaming test
+  narrationPanel.textContent = '';
+  const narration = await generateNarration(aiContext, promptText, (chunk, fullText) => {
+  narrationPanel.textContent = fullText;
+  });
+  
   const logDiv = document.getElementById('log');
   if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
 

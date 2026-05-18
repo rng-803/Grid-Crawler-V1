@@ -736,8 +736,9 @@ async function startNPC(data, canFlee) {
   // const narration = await generateNarration(AI_CONTEXT, prompt);
   //narration streaming test
   narrationPanel.textContent = '';
-  const narration = await generateNarration(aiContext, promptText, (chunk, fullText) => {
-  narrationPanel.textContent = fullText;
+
+  const narration = await generateNarration(aiContext, promptText, (chunk) => {
+  narrationPanel.textContent += chunk;
   });
   
   const logDiv = document.getElementById('log');

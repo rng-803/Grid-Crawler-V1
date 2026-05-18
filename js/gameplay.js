@@ -546,7 +546,25 @@ function applySlotsToGrid(grid, slots) {
     }
   }
 }
+function addStreamingLog(className = 'event-neutral') {
+  const logDiv = document.getElementById('log');
 
+  const el = document.createElement('div');
+  el.className = `log-entry ${className}`;
+
+  logDiv.appendChild(el);
+
+  return {
+    appendText(chunk) {
+      el.textContent += chunk;
+      document.getElementById('log-panel').scrollTop = 99999;
+    },
+
+    setHtml(html) {
+      el.innerHTML = html;
+    }
+  };
+}
 function pause(announceFn, resolveFn, canFlee = false, type = 'enemy') {
   announceFn();
   renderStatusPanel();
@@ -609,9 +627,15 @@ async function startEnemy(data, canFlee) {
   const defaultText = `You enter a chamber and face <span class="highlight">${data.name}</span>. Its Power is <span class="highlight">${diffCat}</span>. Your effective Power is <span class="highlight">${eff.power}</span>. Brace yourself…`;
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
+  const streamLog = addStreamingLog('event-enemy');
   const prompt = buildEnemyStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
+  const narration = await generateNarration(
+  AI_CONTEXT,
+  prompt,
+  (chunk) => {
+    streamLog.appendText(chunk);
+  }
+  );
 
   const logDiv = document.getElementById('log');
   if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);

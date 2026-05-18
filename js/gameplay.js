@@ -743,24 +743,26 @@
     addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
 
     const prompt = buildNpcStartPrompt(data, diffCat, getPlayerContext());
+    const streamLog = addStreamingLog('event-npc');
+
     // const narration = await generateNarration(AI_CONTEXT, prompt);
     //narration streaming test
-    narrationPanel.textContent = '';
+   
 
     const narration = await generateNarration(AI_CONTEXT, prompt, (chunk) => {
-    narrationPanel.textContent += chunk;
+    streamLog.appendText(chunk);
     });
-    
-    const logDiv = document.getElementById('log');
-    if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
 
     pause(
-        () => addLog(narration ? narration : defaultText, 'event-npc'),
-        () => resolveNPC(data),
-        canFlee,
-        'npc'
-    );
+    () => {
+    if (!narration) {
+      streamLog.setText(defaultText);
     }
+      },
+      () => resolveEnemy(data),
+      canFlee,
+      'npc'
+);
 
     async function resolveNPC(data) {
     G.phase = 'loading';

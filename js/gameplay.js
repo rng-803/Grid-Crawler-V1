@@ -185,7 +185,7 @@ function initState(className) {
   }
   G = {
     player: {
-      hp: 10,
+      hp: 5,
       level: 1,
       class: className,
       base: { power: base.power, perception: base.perception, persuasion: base.persuasion },
@@ -1244,8 +1244,8 @@ function renderStatusPanel() {
   document.getElementById('status-content').innerHTML = `
     <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
     <span class="stat-label">HP</span>
-      <span class="stat-val ${p.hp <= 3 ? 'danger' : ''}">${p.hp} / 10</span></div>
-    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / 10) * 100}%"></div></div>
+      <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / 5</span></div>
+    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / 5) * 100}%"></div></div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     ${attrLine('Power', p.base.power, eff.power)}

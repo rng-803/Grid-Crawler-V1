@@ -24,6 +24,34 @@ function toggleDebug() {
   }
 }
 
+function addStreamingLog(className = 'event-neutral') {
+  const logDiv = document.getElementById('log');
+
+  const entry = document.createElement('div');
+  entry.className = className;
+  entry.textContent = '';
+
+  logDiv.appendChild(entry);
+  logDiv.scrollTop = logDiv.scrollHeight;
+
+  return {
+    setText(text) {
+      entry.textContent = text;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    },
+
+    appendText(chunk) {
+      entry.textContent += chunk;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    },
+
+    remove() {
+      entry.remove();
+    },
+
+    element: entry
+  };
+}
 function getNamingPromptInputs() {
   return {
     theme: document.getElementById('game-theme').value.trim(),

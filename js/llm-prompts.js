@@ -76,14 +76,30 @@ Player state: ${playerContext}
 Describe the player picking up the item, in a short paragraph`;
 }
 
-function buildHealerDialoguePrompt(data, removedCurses, playerContext) {
-  const curseText = removedCurses.length
-    ? removedCurses.map(curse => `${curse.name} (${promptAttrDisplay(curse.attribute)} ${curse.magnitude})`).join(', ')
-    : 'none';
+function buildTownNpcDetailText(data) {
+  return data && data.details ? `Town NPC details: ${data.details}` : 'Town NPC details: unspecified';
+}
+
+function buildHealerDialoguePrompt(data, previousHp, maxHp, playerContext) {
   return `The player visited a town healer: ${data.name}.
+${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
-Curses removed: ${curseText}
-Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the removed curses if any, and not invent unrelated events.`;
+Service: The healer restores HP, not curses.
+HP before healing: ${previousHp}/${maxHp}
+HP after healing: ${maxHp}/${maxHp}
+Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the healing, and not invent unrelated events.`;
+}
+
+function buildCurseRemoverDialoguePrompt(data, removedCurse, playerContext) {
+  const curseText = removedCurse
+    ? `${removedCurse.name} (${promptAttrDisplay(removedCurse.attribute)} ${removedCurse.magnitude})`
+    : 'none';
+  return `The player visited a town curse remover: ${data.name}.
+${buildTownNpcDetailText(data)}
+Player state: ${playerContext}
+Service: The curse remover removes one curse at a time.
+Curse removed: ${curseText}
+Write a short curse-removal dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the removed curse if any, and not invent unrelated events.`;
 }
 
 function buildPhysicalDescriptionPrompt(data) {
@@ -109,7 +125,7 @@ function buildNameGeneratorContext(inputs, detailKind) {
   const setting = inputs.setting || 'fantasy';
   let context = `Create names for a ${setting} setting.`;
   if (inputs.themeDetails) context += ` Theme details: ${inputs.themeDetails}.`;
-  if (inputs.charDesc) context += ` Character context: ${inputs.charDesc}.`;
+  if (detailKind !== 'item' && inputs.charDesc) context += ` Character context: ${inputs.charDesc}.`;
 
   if (detailKind === 'enemy' && inputs.enemyDetails) {
     context += ` The enemies found should include ${inputs.enemyDetails}.`;
@@ -118,10 +134,6 @@ function buildNameGeneratorContext(inputs, detailKind) {
     context += ` The curses should include ${inputs.curseDetails}.`;
     context += ' Curse names should be easy to understand and direct. Avoid vague or overly abstract curse names.';
   }
-  if (detailKind === 'item' && inputs.itemDetails) {
-    context += ` The items found should include ${inputs.itemDetails}.`;
-  }
-
   return context;
 }
 
@@ -214,7 +226,7 @@ function buildSetupAutofillPrompt(inputs, missingFields) {
     themeDetails: inputs.themeDetails || '',
     enemyDetails: inputs.enemyDetails || '',
     curseDetails: inputs.curseDetails || '',
-    itemDetails: inputs.itemDetails || '',
+    townNpcDetails: inputs.townNpcDetails || '',
     charDesc: inputs.charDesc || '',
   };
   const missingJson = JSON.stringify(missingFields, null, 2);
@@ -235,6 +247,6 @@ Return ONLY valid JSON in this shape:
   "themeDetails": "<only if requested>",
   "enemyDetails": "<only if requested>",
   "curseDetails": "<only if requested>",
-  "itemDetails": "<only if requested>"
+  "townNpcDetails": "<only if requested>"
 }`;
 }

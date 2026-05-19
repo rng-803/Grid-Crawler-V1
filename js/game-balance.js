@@ -1,11 +1,13 @@
 // Grid / progression tuning
-const GRID_WIDTH = 7;
-const GRID_HEIGHT = 7;
+const GRID_WIDTH = 13;
+const GRID_HEIGHT = 13;
 const TOWN_WIDTH = 5;
 const TOWN_HEIGHT = 5;
 const WALL_RATIO = 0.4;
+const EMPTY_CELL_CHANCE = 0.5;
 const MAX_ATTR = 20;
 const MAX_LEVEL = 20;
+const PLAYER_MAX_HP = 5;
 const MAX_EQUIPPED_ITEMS = 5;
 const CURSE_CLEAR_ITEM_CHANCE = 0.25;
 const GRID_GEN_MAX_ATTEMPTS = 200;

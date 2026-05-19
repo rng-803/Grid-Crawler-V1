@@ -611,7 +611,7 @@
 
   <div id="ai-setup-screen">
     <p class="setup-intro">
-      The map is generated when you run the AI namer: each room’s enemy, trap, NPC, item, and failure-curse labels are chosen together so curses fit their source.
+      The map is generated when you run the AI namer: enemies, NPCs, items, and curses are named from separate pools before the run starts.
     </p>
     <div style="max-width: 400px; margin: 0 auto; text-align: left;">
       <label>API Key (OpenAI compatible):</label>
@@ -657,8 +657,8 @@
         <textarea id="game-curse-details" placeholder="What curses may befall the adventurer?"
           style="width: 100%; height: 70px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
 
-        <label>Item Details (Optional):</label>
-        <textarea id="game-item-details" placeholder="What items, relics, or gear should be found?"
+        <label>Town NPC Details (Optional):</label>
+        <textarea id="game-town-npc-details" placeholder="What should town NPCs be like?"
           style="width: 100%; height: 70px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
       </div>
 

@@ -12,7 +12,8 @@ let GENERATED_CURSE_POOLS = null;
 let AVAILABLE_CURSE_POOLS = null;
 let AI_CONTEXT = {
   theme: '',
-  characterDesc: ''
+  characterDesc: '',
+  townNpcDetails: ''
 };
 
 function toggleAdvancedSetup(forceVisible) {
@@ -31,7 +32,7 @@ function toggleAdvancedSetup(forceVisible) {
 function syncAdvancedSetupVisibility() {
   const inputs = getNamingPromptInputs();
   const hasAdvancedValues = Boolean(
-    inputs.themeDetails || inputs.enemyDetails || inputs.curseDetails || inputs.itemDetails
+    inputs.themeDetails || inputs.enemyDetails || inputs.curseDetails || inputs.townNpcDetails
   );
   toggleAdvancedSetup(hasAdvancedValues);
 }
@@ -80,7 +81,7 @@ function getNamingPromptInputs() {
     themeDetails: document.getElementById('game-theme-details').value.trim(),
     enemyDetails: document.getElementById('game-enemy-details').value.trim(),
     curseDetails: document.getElementById('game-curse-details').value.trim(),
-    itemDetails: document.getElementById('game-item-details').value.trim(),
+    townNpcDetails: document.getElementById('game-town-npc-details').value.trim(),
     charDesc: document.getElementById('game-char-desc').value.trim(),
   };
 }
@@ -96,7 +97,7 @@ function applyNamingPromptInputs(inputs) {
     themeDetails: 'game-theme-details',
     enemyDetails: 'game-enemy-details',
     curseDetails: 'game-curse-details',
-    itemDetails: 'game-item-details',
+    townNpcDetails: 'game-town-npc-details',
     charDesc: 'game-char-desc',
   };
 
@@ -128,8 +129,21 @@ function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
 
 async function fillMissingNamingInputs(inputs) {
   const missingFields = [];
-  if (!String(inputs.themeDetails || '').trim() && String(inputs.setting || '').trim()) {
+  const hasSetupContext = Boolean(String(inputs.setting || '').trim() || String(inputs.themeDetails || '').trim());
+  if (!String(inputs.setting || '').trim() && String(inputs.themeDetails || '').trim()) {
+    missingFields.push('setting');
+  }
+  if (!String(inputs.themeDetails || '').trim() && hasSetupContext) {
     missingFields.push('themeDetails');
+  }
+  if (!String(inputs.enemyDetails || '').trim() && hasSetupContext) {
+    missingFields.push('enemyDetails');
+  }
+  if (!String(inputs.curseDetails || '').trim() && hasSetupContext) {
+    missingFields.push('curseDetails');
+  }
+  if (!String(inputs.townNpcDetails || '').trim() && hasSetupContext) {
+    missingFields.push('townNpcDetails');
   }
 
   if (!missingFields.length) return inputs;
@@ -186,7 +200,7 @@ function initState(className) {
   const townGrid = generateTown();
   G = {
     player: {
-      hp: 5,
+      hp: PLAYER_MAX_HP,
       level: 1,
       class: className,
       base: { power: base.power, perception: base.perception, persuasion: base.persuasion },
@@ -632,14 +646,45 @@ function pickFallbackCurseName(attribute, magnitude) {
 
 function applyCurseFromEncounter(data) {
   const fc = data.failCurse;
-  ensureRuntimeCursePools();
-  const bucket = AVAILABLE_CURSE_POOLS[fc.attribute] && AVAILABLE_CURSE_POOLS[fc.attribute][String(fc.magnitude)];
-  const name = bucket && bucket.length
-    ? bucket.pop()
-    : pickFallbackCurseName(fc.attribute, fc.magnitude);
-  const s = { name, attribute: fc.attribute, magnitude: fc.magnitude };
+  const curse = drawAvailableCurse(fc.attribute, fc.magnitude);
+  const s = { name: curse.name, attribute: curse.attribute, magnitude: curse.magnitude };
   G.player.statuses.push(s);
   return s;
+}
+
+function drawAvailableCurse(preferredAttribute, preferredMagnitude) {
+  ensureRuntimeCursePools();
+  const preferredBucket = AVAILABLE_CURSE_POOLS[preferredAttribute] && AVAILABLE_CURSE_POOLS[preferredAttribute][String(preferredMagnitude)];
+  if (preferredBucket && preferredBucket.length) {
+    return {
+      name: preferredBucket.pop(),
+      attribute: preferredAttribute,
+      magnitude: preferredMagnitude,
+    };
+  }
+
+  const options = [];
+  for (const attribute of ['power', 'perception', 'persuasion']) {
+    for (const magnitude of ['-1', '-2']) {
+      const bucket = AVAILABLE_CURSE_POOLS[attribute] && AVAILABLE_CURSE_POOLS[attribute][magnitude];
+      if (bucket && bucket.length) options.push({ attribute, magnitude: Number(magnitude), bucket });
+    }
+  }
+
+  if (options.length) {
+    const choice = pick(options);
+    return {
+      name: choice.bucket.pop(),
+      attribute: choice.attribute,
+      magnitude: choice.magnitude,
+    };
+  }
+
+  return {
+    name: pickFallbackCurseName(preferredAttribute, preferredMagnitude),
+    attribute: preferredAttribute,
+    magnitude: preferredMagnitude,
+  };
 }
 
 function damage(n) {
@@ -717,18 +762,20 @@ function isReachable(cells, sx, sy, ex, ey) {
 function generateGrid() {
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
-  const startX = Math.floor(W / 2);
-  const startY = Math.floor(H / 2);
-  const wallN = Math.floor(W * H * WALL_RATIO);
+  const startY = 0;
+  const exitY = H - 1;
 
   for (let attempt = 0; attempt < GRID_GEN_MAX_ATTEMPTS; attempt++) {
+    const startX = Math.floor(Math.random() * W);
+    const exitPos = { x: Math.floor(Math.random() * W), y: exitY };
+    const wallN = Math.floor((W * H - 2) * WALL_RATIO);
     const cells = Array.from({ length: H }, () =>
       Array.from({ length: W }, () =>
         ({ type: null, data: {}, visited: false, fled: false })));
 
     const positions = [];
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-      if (!(x === startX && y === startY)) positions.push({ x, y });
+      if (!(x === startX && y === startY) && !(x === exitPos.x && y === exitPos.y)) positions.push({ x, y });
 
     for (let i = positions.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -738,32 +785,22 @@ function generateGrid() {
     for (let i = 0; i < wallN; i++)
       cells[positions[i].y][positions[i].x].type = 'wall';
 
-    const open = positions.slice(wallN);
-    const upperThirdLimit = Math.ceil(H / 3);
-    // const validExits = open.filter(p => p.y < upperThirdLimit);
-    const validExits = open.filter(p => 
-      p.x === 0 || 
-      p.y === 0 || 
-      p.x === W - 1 || 
-      p.y === H - 1
-    );
-    const finalValidExits = validExits.length ? validExits : open;
-    // if (!validExits.length) continue;
-    // const exitPos = validExits[Math.floor(Math.random() * validExits.length)];
-    // cells[exitPos.y][exitPos.x].type = 'exit';
-    if (!finalValidExits.length) continue;
-    const exitPos = finalValidExits[Math.floor(Math.random() * finalValidExits.length)];
     cells[exitPos.y][exitPos.x].type = 'exit';
+    cells[startY][startX].type = 'start';
 
-    // if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
     if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
 
-    cells[startY][startX].type = 'start';
     cells[startY][startX].visited = true;
     cells[startY][startX].encounterState = 'none';
+    cells[exitPos.y][exitPos.x].encounterState = 'none';
 
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (cells[y][x].type) continue;
+      if (Math.random() < EMPTY_CELL_CHANCE) {
+        cells[y][x].type = 'empty';
+        cells[y][x].encounterState = 'none';
+        continue;
+      }
       const t = pick(ENCOUNTER_TYPES);
       cells[y][x].type = t;
       const diff = rollDifficultyByDistance(x, y, exitPos.x, exitPos.y);
@@ -811,7 +848,7 @@ function cloneGridForPlay(grid) {
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
     const c = g.cells[y][x];
     c.visited = c.type === 'start';
-    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'exit' || c.type === 'wall' ? 'none' : 'active');
+    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'exit' || c.type === 'wall' || c.type === 'empty' ? 'none' : 'active');
     c.fled = false;
   }
   return g;
@@ -843,13 +880,22 @@ function generateTown() {
     if (x === start.x && y === start.y) continue;
     npcPositions.push({ x, y });
   }
-  const healerPos = pick(npcPositions);
+
+  for (let i = npcPositions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [npcPositions[i], npcPositions[j]] = [npcPositions[j], npcPositions[i]];
+  }
+
+  const healerPos = npcPositions.pop();
+  const curseRemoverPos = npcPositions.pop();
   cells[healerPos.y][healerPos.x] = {
     type: 'town-npc',
     data: {
       role: 'healer',
       name: 'the healer',
-      mapIcon: '+',
+      mapIcon: 'H',
+      serviceCost: 0,
+      details: AI_CONTEXT.townNpcDetails,
     },
     visited: true,
     revealed: true,
@@ -857,7 +903,22 @@ function generateTown() {
     encounterState: 'active',
   };
 
-  return { cells, start, healer: healerPos };
+  cells[curseRemoverPos.y][curseRemoverPos.x] = {
+    type: 'town-npc',
+    data: {
+      role: 'curseRemover',
+      name: 'the curse remover',
+      mapIcon: 'C',
+      serviceCost: 0,
+      details: AI_CONTEXT.townNpcDetails,
+    },
+    visited: true,
+    revealed: true,
+    fled: false,
+    encounterState: 'active',
+  };
+
+  return { cells, start, npcs: { healer: healerPos, curseRemover: curseRemoverPos } };
 }
 
 function fillDefaultItemName(item) {
@@ -1198,29 +1259,37 @@ function returnCurseToPool(curse) {
 }
 
 async function startTownNpc(data) {
-  if (!data || data.role !== 'healer') {
+  if (!data) {
     addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
     renderUI();
     return;
   }
-  await visitHealer(data);
+  if (data.role === 'healer') {
+    await visitHealer(data);
+    return;
+  }
+  if (data.role === 'curseRemover') {
+    await visitCurseRemover(data);
+    return;
+  }
+
+  addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
+  renderUI();
 }
 
 async function visitHealer(data) {
   G.phase = 'loading';
   renderInputPanel();
-  const removed = G.player.statuses.splice(0);
-  for (const curse of removed) returnCurseToPool(curse);
+  const maxHp = PLAYER_MAX_HP;
+  const previousHp = G.player.hp;
+  G.player.hp = maxHp;
 
-  const removedText = removed.length
-    ? removed.map(curse => `<em>${curse.name}</em>`).join(', ')
-    : 'no curses';
-  const fallbackText = removed.length
-    ? `<span class="good-txt">${data.name} removes ${removedText}.</span>`
-    : `<span class="info-txt">${data.name} finds no curses to remove.</span>`;
+  const fallbackText = previousHp < maxHp
+    ? `<span class="good-txt">${data.name} restores your HP to full.</span>`
+    : `<span class="info-txt">${data.name} says your wounds are already healed.</span>`;
 
   addLog(`<span class="info-txt">The healer is speaking...</span>`, 'event-neutral');
-  const prompt = buildHealerDialoguePrompt(data, removed, getPlayerContext());
+  const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
   const narration = await generateNarration(AI_CONTEXT, prompt);
 
   const logDiv = document.getElementById('log');
@@ -1228,7 +1297,31 @@ async function visitHealer(data) {
 
   if (narration) addLog(narration, 'event-npc');
   addLog(fallbackText, 'event-neutral');
-  if (removed.length) await refreshPhysicalDescription(`Town healer removed curses: ${removed.map(curse => curse.name).join(', ')}.`);
+  if (previousHp < maxHp) await refreshPhysicalDescription(`Town healer restored HP from ${previousHp} to ${maxHp}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+async function visitCurseRemover(data) {
+  G.phase = 'loading';
+  renderInputPanel();
+  const removed = G.player.statuses.length ? G.player.statuses.shift() : null;
+  if (removed) returnCurseToPool(removed);
+
+  const fallbackText = removed
+    ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em>.</span>`
+    : `<span class="info-txt">${data.name} finds no curses to remove.</span>`;
+
+  addLog(`<span class="info-txt">The curse remover is speaking...</span>`, 'event-neutral');
+  const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
+  const narration = await generateNarration(AI_CONTEXT, prompt);
+
+  const logDiv = document.getElementById('log');
+  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+
+  if (narration) addLog(narration, 'event-npc');
+  addLog(fallbackText, 'event-neutral');
+  if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
   G.phase = 'playing';
   renderUI();
 }
@@ -1448,8 +1541,8 @@ function renderStatusPanel() {
   document.getElementById('status-content').innerHTML = `
     <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
     <span class="stat-label">HP</span>
-      <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / 5</span></div>
-    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / 5) * 100}%"></div></div>
+      <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / ${PLAYER_MAX_HP}</span></div>
+    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / PLAYER_MAX_HP) * 100}%"></div></div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     ${attrLine('Power', p.base.power, eff.power)}
@@ -1608,6 +1701,7 @@ async function generateTheme() {
     inputs = await fillMissingNamingInputs(inputs);
     AI_CONTEXT.theme = buildThemeSummary(inputs);
     AI_CONTEXT.characterDesc = inputs.charDesc;
+    AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
     const request = buildCachedNamingRequest(inputs);
     const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw] = await Promise.all([
@@ -1672,6 +1766,7 @@ function skipTheme() {
   const inputs = getNamingPromptInputs();
   AI_CONTEXT.theme = buildThemeSummary(inputs);
   AI_CONTEXT.characterDesc = inputs.charDesc;
+  AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
   const debugDiv = document.getElementById('debug-names');
   const raw = debugDiv.value.trim();

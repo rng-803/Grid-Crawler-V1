@@ -307,6 +307,12 @@
       overflow: hidden;
     }
 
+    #log-panel.show-all #log {
+      height: 420px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
     .log-entry {
       display: none;
       padding: 8px 10px;
@@ -323,12 +329,36 @@
       display: block;
     }
 
+    #log-panel.show-all .log-entry {
+      display: block;
+      max-height: none;
+      overflow: visible;
+    }
+
     .chronicle-hint {
       margin-top: 6px;
       color: var(--text-dim);
       font-family: 'Press Start 2P', 'Courier New', monospace;
       font-size: 0.52rem;
       line-height: 1.5;
+    }
+
+    .chronicle-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .chronicle-actions .chronicle-hint {
+      margin-top: 0;
+    }
+
+    .btn-chronicle-history {
+      flex-shrink: 0;
+      padding: 6px 8px;
+      font-size: 0.5rem;
     }
 
     .log-entry.event-enemy {
@@ -815,7 +845,11 @@
     <div class="panel" id="log-panel">
       <div class="panel-title">Chronicle</div>
       <div id="log"></div>
-      <div class="chronicle-hint" id="chronicle-hint">Space: next chronicle entry</div>
+      <div class="chronicle-actions">
+        <div class="chronicle-hint" id="chronicle-hint">Space: next chronicle entry</div>
+        <button type="button" class="btn btn-dir btn-chronicle-history" id="btn-chronicle-history"
+          aria-pressed="false" onclick="toggleChronicleHistory()">Show All History</button>
+      </div>
     </div>
     <div class="panel" id="input-panel"
       style="display: flex; gap: 10px; justify-content: space-between;">

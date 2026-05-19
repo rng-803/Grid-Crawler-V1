@@ -16,6 +16,7 @@ let AI_CONTEXT = {
   townNpcDetails: ''
 };
 let CHRONICLE_INDEX = 0;
+let CHRONICLE_SHOW_ALL = false;
 
 function toggleAdvancedSetup(forceVisible) {
   const panel = document.getElementById('advanced-setup-fields');
@@ -224,6 +225,7 @@ function initState(className) {
     },
     phase: 'playing',
     turns: 0,
+    gameOverSummaryLogged: false,
     pendingResolveFn: null,
     canFlee: false,
     encounterType: null,
@@ -904,10 +906,17 @@ async function checkGameOver() {
     await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss');
 
     G.phase = 'gameover-loss';
+    logGameOverSummaryOnce();
     renderUI();
     return true;
   }
   return false;
+}
+
+function logGameOverSummaryOnce() {
+  if (!G || G.gameOverSummaryLogged) return;
+  G.gameOverSummaryLogged = true;
+  addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss');
 }
 
 function levelUp() {
@@ -1808,9 +1817,18 @@ function updateChronicleVisibility() {
     const pageText = current && current._chroniclePages && current._chroniclePages.length > 1
       ? ` page ${(current._chroniclePage || 0) + 1}/${current._chroniclePages.length}`
       : '';
-    hint.textContent = CHRONICLE_INDEX < entries.length - 1 || pageText
-      ? `Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`
-      : `Space: chronicle current (${CHRONICLE_INDEX + 1}/${entries.length})`;
+    if (CHRONICLE_SHOW_ALL) {
+      hint.textContent = `Showing all chronicle entries (${entries.length})`;
+    } else if (CHRONICLE_INDEX < entries.length - 1 || pageText) {
+      hint.textContent = `Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`;
+    } else {
+      hint.textContent = `Space: chronicle current (${CHRONICLE_INDEX + 1}/${entries.length})`;
+    }
+  }
+  const button = document.getElementById('btn-chronicle-history');
+  if (button) {
+    button.textContent = CHRONICLE_SHOW_ALL ? 'Show Current Entry' : 'Show All History';
+    button.setAttribute('aria-pressed', CHRONICLE_SHOW_ALL ? 'true' : 'false');
   }
 }
 
@@ -1843,6 +1861,13 @@ function focusChronicleEntry(el) {
     CHRONICLE_INDEX = index;
     updateChronicleVisibility();
   }
+}
+
+function toggleChronicleHistory() {
+  CHRONICLE_SHOW_ALL = !CHRONICLE_SHOW_ALL;
+  const panel = document.getElementById('log-panel');
+  if (panel) panel.classList.toggle('show-all', CHRONICLE_SHOW_ALL);
+  updateChronicleVisibility();
 }
 
 async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
@@ -2005,7 +2030,6 @@ function renderInputPanel() {
   if (G.phase === 'gameover-loss') {
     title.textContent = '✦ Defeated';
     buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Try Again</button>`;
-    addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss');
     return;
   }
 }
@@ -2188,6 +2212,9 @@ function skipTheme() {
 function startGame(className) {
   initState(className);
   CHRONICLE_INDEX = 0;
+  CHRONICLE_SHOW_ALL = false;
+  const logPanel = document.getElementById('log-panel');
+  if (logPanel) logPanel.classList.remove('show-all');
   document.body.classList.add('game-active');
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('game-container').style.display = 'grid';

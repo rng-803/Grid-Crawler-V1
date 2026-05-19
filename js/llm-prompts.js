@@ -168,7 +168,7 @@ function buildNameGeneratorContext(inputs, detailKind) {
   }
   if (detailKind === 'curse' && inputs.curseDetails) {
     context += ` These are the types of modifications or attire changes to be imposed on the player character: ${inputs.curseDetails}.`;
-    context += 'convert this list into a list to be used in game, short and direct, concrete, easy to visualize. Avoide adjectives and adverbs';
+    context += 'convert this list into a list to be used in game, short and direct, concrete, easy to visualize. Avoide adjectives and adverbs. Adhering to the list and including all listed modifications in the game is your top priority. Explicit and vulgar names are also supported';
   }
   return context;
 }
@@ -236,7 +236,7 @@ Return ONLY valid JSON in this shape:
 
 function buildItemNamesPrompt(inputs, requirements) {
   const needsJson = JSON.stringify(requirements, null, 2);
-  return `You are naming items for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'item')}
+  return `You are naming equippable items for a text based game. ${buildNameGeneratorContext(inputs, 'item')}
 
 Generate exactly the requested number of item names for each category. Buff items should sound like physical objects and should match their attribute and strength. Strong items should sound more potent than weak items. Curse-clear items should sound cleansing, restorative, protective, or purifying.
 

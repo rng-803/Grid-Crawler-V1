@@ -8,7 +8,14 @@ const EMPTY_CELL_CHANCE = 0.5;
 const MAX_ATTR = 20;
 const MAX_LEVEL = 20;
 const PLAYER_MAX_HP = 5;
-const MAX_EQUIPPED_ITEMS = 5;
+const PLAYER_STARTING_MONEY = 20;
+const ENEMY_WIN_MONEY = { min: 8, max: 14 };
+const ENEMY_LOSS_MONEY = { min: 2, max: 5 };
+const LARGE_MONEY_REWARD = { min: 18, max: 35 };
+const MONEY_REWARD_CHANCE = 0.35;
+const HEALER_SERVICE_COST = 8;
+const CURSE_REMOVER_SERVICE_COST = 12;
+const MAX_EQUIPPED_ITEMS = 3;
 const CURSE_CLEAR_ITEM_CHANCE = 0.25;
 const GRID_GEN_MAX_ATTEMPTS = 200;
 

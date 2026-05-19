@@ -201,6 +201,7 @@ function initState(className) {
   G = {
     player: {
       hp: PLAYER_MAX_HP,
+      money: PLAYER_STARTING_MONEY,
       level: 1,
       class: className,
       base: { power: base.power, perception: base.perception, persuasion: base.persuasion },
@@ -231,6 +232,22 @@ function initState(className) {
 
 function rollD(n) { return Math.floor(Math.random() * n) + 1; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rollRange(range) {
+  return range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+}
+
+function addMoney(amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  G.player.money += n;
+  return n;
+}
+
+function spendMoney(amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  if (G.player.money < n) return false;
+  G.player.money -= n;
+  return true;
+}
 
 function attrLabel(attr) {
   if (attr === 'perception') return 'Agility';
@@ -262,8 +279,22 @@ function markCurrentDungeonEncounter(outcome) {
   if (G.currentLocation !== 'dungeon') return;
   const cell = getCurrentCell();
   if (!cell || !['enemy', 'treasure', 'npc', 'item'].includes(cell.type)) return;
-  cell.encounterState = outcome === 'cleared' ? 'cleared' : 'failed-respawnable';
+  cell.encounterState = outcome === 'cleared' ? 'cleared' : 'failed-empty';
   cell.fled = false;
+}
+
+function respawnFailedDungeonEncounters() {
+  const dungeon = G && G.locations && G.locations.dungeon;
+  if (!dungeon) return;
+  for (const row of dungeon.grid.cells) {
+    for (const cell of row) {
+      if (cell.encounterState === 'failed-empty') {
+        cell.encounterState = 'active';
+        cell.visited = false;
+        cell.fled = false;
+      }
+    }
+  }
 }
 
 function promptAttrKey(attr) {
@@ -328,9 +359,15 @@ function buildNamingRequirements(grid) {
       requirements.items.curseClear += 1;
       return;
     }
-    const attr = promptAttrKey(item.attribute || 'power');
-    const strength = (Number(item.magnitude) || 1) <= 2 ? 'Weak' : 'Strong';
+    normalizeBuffItem(item);
+    const primary = getItemPrimaryEffect(item);
+    const attr = promptAttrKey(primary.attribute || 'power');
+    const strength = item.level <= 2 ? 'Weak' : 'Strong';
     requirements.items[attr][strength] += 1;
+  };
+  const addRewardNeed = (reward) => {
+    if (!reward || reward.type !== 'item') return;
+    addItemNeed(reward.item);
   };
 
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
@@ -340,10 +377,10 @@ function buildNamingRequirements(grid) {
     if (t === 'enemy') {
       requirements.enemies[getDifficultyCategory(d.power)] += 1;
     } else if (t === 'treasure') {
-      addItemNeed(d.rewardItem);
+      addRewardNeed(d.reward || { type: 'item', item: d.rewardItem });
     } else if (t === 'npc') {
       requirements.npcs[getDifficultyCategory(d.check)] += 1;
-      addItemNeed(d.rewardItem);
+      addRewardNeed(d.reward || { type: 'item', item: d.rewardItem });
     } else if (t === 'item') {
       addItemNeed(d.pickup);
     }
@@ -499,13 +536,13 @@ function applyGeneratedItemName(item, workingPools) {
     return;
   }
 
+  normalizeBuffItem(item);
   item.type = 'buff';
-  if (!item.attribute) item.attribute = pick(['power', 'perception', 'persuasion']);
-  item.magnitude = Math.max(1, Math.min(5, Number(item.magnitude) || 1));
-  const strength = item.magnitude <= 2 ? 'Weak' : 'Strong';
+  const primary = getItemPrimaryEffect(item);
+  const strength = item.level <= 2 ? 'Weak' : 'Strong';
   item.name = drawPoolName(
-    workingPools.items[item.attribute][strength],
-    () => pick(ITEM_NAMES[item.attribute][strength]),
+    workingPools.items[primary.attribute][strength],
+    () => pick(ITEM_NAMES[primary.attribute][strength]),
   );
 }
 
@@ -514,7 +551,11 @@ function getEff() {
   const e = { power: p.base.power, perception: p.base.perception, persuasion: p.base.persuasion };
   for (const s of p.statuses) e[s.attribute] += s.magnitude;
   for (const item of p.inventory) {
-    if (item.type === 'buff' && item.equipped) e[item.attribute] += item.magnitude;
+    if (item.type === 'buff' && item.equipped) {
+      for (const effect of getItemEffects(item)) {
+        e[effect.attribute] += effect.magnitude;
+      }
+    }
   }
   return e;
 }
@@ -525,9 +566,10 @@ function getPlayerContext() {
   if (AI_CONTEXT.characterDesc) {
     ctx += `Character: ${AI_CONTEXT.characterDesc}. `;
   }
+  ctx += `HP: ${p.hp}/${PLAYER_MAX_HP}. Coins: ${p.money}. `;
   const equippedItems = p.inventory.filter(item => item.type === 'buff' && item.equipped);
   if (equippedItems.length > 0) {
-    ctx += `Equipped Items: ${equippedItems.map(e => e.name).join(', ')}. `;
+    ctx += `Equipped Items: ${equippedItems.map(e => `${e.name} (${itemDescription(e)})`).join(', ')}. `;
   }
   if (p.statuses.length > 0) {
     ctx += `Curses: ${p.statuses.map(s => s.name).join(', ')}.`;
@@ -594,27 +636,90 @@ async function refreshPhysicalDescription(change) {
   renderCharacterDescription();
 }
 
+function itemEffectsForLevel(level, primaryAttribute) {
+  const primary = primaryAttribute || pick(['power', 'perception', 'persuasion']);
+  const attrs = ['power', 'perception', 'persuasion'];
+  const secondary = pick(attrs.filter(attr => attr !== primary));
+  if (level === 1) return [{ attribute: primary, magnitude: 1 }];
+  if (level === 2) return [{ attribute: primary, magnitude: 2 }];
+  if (level === 3) return [
+    { attribute: primary, magnitude: 2 },
+    { attribute: secondary, magnitude: 1 },
+  ];
+  if (level === 4) return [
+    { attribute: primary, magnitude: 2 },
+    { attribute: secondary, magnitude: 2 },
+  ];
+  return [{ attribute: primary, magnitude: 5 }];
+}
+
+function getItemEffects(item) {
+  if (!item || item.type !== 'buff') return [];
+  if (Array.isArray(item.effects) && item.effects.length) {
+    return item.effects
+      .map(effect => ({
+        attribute: effect.attribute || 'power',
+        magnitude: Math.max(1, Math.min(5, Number(effect.magnitude) || 1)),
+      }))
+      .filter(effect => ['power', 'perception', 'persuasion'].includes(effect.attribute));
+  }
+  if (item.attribute) {
+    return [{
+      attribute: item.attribute,
+      magnitude: Math.max(1, Math.min(5, Number(item.magnitude) || 1)),
+    }];
+  }
+  return itemEffectsForLevel(Number(item.level) || 1, pick(['power', 'perception', 'persuasion']));
+}
+
+function getItemPrimaryEffect(item) {
+  return getItemEffects(item)[0] || { attribute: 'power', magnitude: 1 };
+}
+
+function normalizeBuffItem(item) {
+  if (!item || item.type === 'curseClear') return item;
+  item.type = 'buff';
+  item.level = Math.max(1, Math.min(5, Number(item.level) || 1));
+  const primaryAttribute = item.attribute || (Array.isArray(item.effects) && item.effects[0] && item.effects[0].attribute) || pick(['power', 'perception', 'persuasion']);
+  if (!Array.isArray(item.effects) || !item.effects.length) {
+    item.effects = itemEffectsForLevel(item.level, primaryAttribute);
+  } else {
+    item.effects = getItemEffects(item);
+  }
+  const primary = getItemPrimaryEffect(item);
+  item.attribute = primary.attribute;
+  item.magnitude = primary.magnitude;
+  return item;
+}
+
 function rollItemData() {
   if (Math.random() < CURSE_CLEAR_ITEM_CHANCE) {
     return { type: 'curseClear', name: '' };
   }
+  const attribute = pick(['power', 'perception', 'persuasion']);
   return {
     type: 'buff',
-    attribute: pick(['power', 'perception', 'persuasion']),
-    magnitude: rollD(5),
+    level: 1,
+    attribute,
+    magnitude: 1,
+    effects: itemEffectsForLevel(1, attribute),
     name: '',
   };
 }
 
 function itemDescription(item) {
   if (item.type === 'curseClear') return 'Removes one curse';
-  return `+${item.magnitude} ${attrLabel(item.attribute)}`;
+  normalizeBuffItem(item);
+  const effects = getItemEffects(item)
+    .map(effect => `+${effect.magnitude} ${attrLabel(effect.attribute)}`)
+    .join(', ');
+  return `Lvl ${item.level}: ${effects}`;
 }
 
 function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
   const source = typeof itemData === 'object' && itemData
-    ? itemData
-    : { type: 'buff', name: itemData, attribute: legacyAttribute, magnitude: legacyMagnitude };
+    ? { ...itemData }
+    : { type: 'buff', name: itemData, attribute: legacyAttribute, magnitude: legacyMagnitude, level: Math.max(1, Math.min(5, Number(legacyMagnitude) || 1)) };
   const type = source.type === 'curseClear' ? 'curseClear' : 'buff';
   if (type === 'curseClear') {
     const finalName = source.name && String(source.name).trim()
@@ -625,14 +730,22 @@ function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
     return item;
   }
 
-  const attribute = source.attribute || pick(['power', 'perception', 'persuasion']);
-  const magnitude = Math.max(1, Math.min(5, Number(source.magnitude) || 1));
-  const strength = magnitude <= 2 ? 'Weak' : 'Strong';
-  const fallbackPool = ITEM_NAMES[attribute][strength];
+  normalizeBuffItem(source);
+  const primary = getItemPrimaryEffect(source);
+  const strength = source.level <= 2 ? 'Weak' : 'Strong';
+  const fallbackPool = ITEM_NAMES[primary.attribute][strength];
   const finalName = source.name && String(source.name).trim()
     ? String(source.name).trim()
-    : pick(fallbackPool.length ? fallbackPool : ITEM_NAMES[attribute].Strong);
-  const item = { type, name: finalName, attribute, magnitude, equipped: false };
+    : pick(fallbackPool.length ? fallbackPool : ITEM_NAMES[primary.attribute].Strong);
+  const item = {
+    type,
+    name: finalName,
+    level: source.level,
+    attribute: primary.attribute,
+    magnitude: primary.magnitude,
+    effects: source.effects,
+    equipped: false,
+  };
   G.player.inventory.push(item);
   return item;
 }
@@ -685,6 +798,60 @@ function drawAvailableCurse(preferredAttribute, preferredMagnitude) {
     attribute: preferredAttribute,
     magnitude: preferredMagnitude,
   };
+}
+
+function rollMoneyReward(range = LARGE_MONEY_REWARD) {
+  return { type: 'money', amount: rollRange(range) };
+}
+
+function rollDungeonRewardData() {
+  if (Math.random() < MONEY_REWARD_CHANCE) return rollMoneyReward();
+  return { type: 'item', item: rollItemData() };
+}
+
+function normalizeRewardData(data) {
+  if (!data) return rollDungeonRewardData();
+  if (data.reward) return data.reward;
+  if (data.rewardItem) return { type: 'item', item: data.rewardItem };
+  return rollDungeonRewardData();
+}
+
+function fillDefaultRewardName(reward) {
+  if (!reward) return;
+  if (reward.type === 'item') fillDefaultItemName(reward.item);
+}
+
+function applyGeneratedRewardName(reward, workingPools) {
+  if (!reward) return;
+  if (reward.type === 'item') applyGeneratedItemName(reward.item, workingPools);
+}
+
+function grantReward(reward) {
+  if (!reward) return null;
+  if (reward.type === 'money') {
+    const amount = addMoney(reward.amount);
+    return { type: 'money', amount };
+  }
+  const item = addItemFixed(reward.item);
+  return { type: 'item', item };
+}
+
+function rewardName(reward) {
+  if (!reward) return 'a reward';
+  if (reward.type === 'money') return `${reward.amount} coins`;
+  return reward.item.name;
+}
+
+function rewardDescription(reward) {
+  if (!reward) return 'Reward';
+  if (reward.type === 'money') return `${reward.amount} coins`;
+  return `${reward.item.name} (${itemDescription(reward.item)})`;
+}
+
+function grantedRewardText(granted) {
+  if (!granted) return 'nothing';
+  if (granted.type === 'money') return `${granted.amount} coins`;
+  return `<em>${granted.item.name}</em> (${itemDescription(granted.item)})`;
 }
 
 function damage(n) {
@@ -818,7 +985,7 @@ function generateGrid() {
         cells[y][x].data = {
           difficulty: diff,
           failCurse: { attribute: failAttr, magnitude: -failMag },
-          rewardItem: rollItemData(),
+          reward: rollDungeonRewardData(),
         };
         cells[y][x].encounterState = 'active';
       } else if (t === 'npc') {
@@ -827,7 +994,7 @@ function generateGrid() {
           check: diff,
           failCurse: { attribute: failAttr, magnitude: -2 },
           name: '',
-          rewardItem: rollItemData(),
+          reward: rollDungeonRewardData(),
         };
         cells[y][x].encounterState = 'active';
       } else if (t === 'item') {
@@ -894,7 +1061,7 @@ function generateTown() {
       role: 'healer',
       name: 'the healer',
       mapIcon: 'H',
-      serviceCost: 0,
+      serviceCost: HEALER_SERVICE_COST,
       details: AI_CONTEXT.townNpcDetails,
     },
     visited: true,
@@ -909,7 +1076,7 @@ function generateTown() {
       role: 'curseRemover',
       name: 'the curse remover',
       mapIcon: 'C',
-      serviceCost: 0,
+      serviceCost: CURSE_REMOVER_SERVICE_COST,
       details: AI_CONTEXT.townNpcDetails,
     },
     visited: true,
@@ -928,12 +1095,11 @@ function fillDefaultItemName(item) {
     return;
   }
 
-  item.type = 'buff';
-  if (!item.attribute) item.attribute = pick(['power', 'perception', 'persuasion']);
-  item.magnitude = Math.max(1, Math.min(5, Number(item.magnitude) || 1));
-  const strength = item.magnitude <= 2 ? 'Weak' : 'Strong';
+  normalizeBuffItem(item);
+  const primary = getItemPrimaryEffect(item);
+  const strength = item.level <= 2 ? 'Weak' : 'Strong';
   if (!item.name) {
-    item.name = pick(ITEM_NAMES[item.attribute][strength]);
+    item.name = pick(ITEM_NAMES[primary.attribute][strength]);
   }
 }
 
@@ -946,11 +1112,13 @@ function fillDefaultNames(grid) {
       const cat = getDifficultyCategory(d.power);
       if (!d.name) d.name = pick(ENEMY_NAMES[cat]);
     } else if (t === 'treasure') {
-      fillDefaultItemName(d.rewardItem);
+      d.reward = normalizeRewardData(d);
+      fillDefaultRewardName(d.reward);
     } else if (t === 'npc') {
       const cat = getDifficultyCategory(d.check);
       if (!d.name) d.name = pick(NPC_NAMES[cat]);
-      fillDefaultItemName(d.rewardItem);
+      d.reward = normalizeRewardData(d);
+      fillDefaultRewardName(d.reward);
     } else if (t === 'item' && d.pickup) {
       fillDefaultItemName(d.pickup);
     }
@@ -968,11 +1136,13 @@ function applyNamePoolsToGrid(grid, namePools) {
       const cat = getDifficultyCategory(d.power);
       d.name = drawPoolName(workingPools.enemies[cat], () => pick(ENEMY_NAMES[cat]));
     } else if (t === 'treasure') {
-      applyGeneratedItemName(d.rewardItem, workingPools);
+      d.reward = normalizeRewardData(d);
+      applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'npc') {
       const cat = getDifficultyCategory(d.check);
       d.name = drawPoolName(workingPools.npcs[cat], () => pick(NPC_NAMES[cat]));
-      applyGeneratedItemName(d.rewardItem, workingPools);
+      d.reward = normalizeRewardData(d);
+      applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'item') {
       applyGeneratedItemName(d.pickup, workingPools);
     }
@@ -1010,7 +1180,6 @@ async function fleeEncounter() {
   const pos = getCurrentPos();
   const cell = getCurrentGrid().cells[pos.y][pos.x];
   cell.fled = true;
-  if (G.currentLocation === 'dungeon') cell.encounterState = 'failed-respawnable';
   G.pendingResolveFn = null;
   G.canFlee = false;
   G.phase = 'loading';
@@ -1068,11 +1237,13 @@ async function resolveEnemy(data) {
   let mechText = '';
   let s = null;
   if (won) {
-    mechText = `<span class="good-txt">Your strength prevails — ${data.name} falls. Victory!</span><br><span class="good-txt">⬆ You gain a level.</span>`;
+    const gained = addMoney(rollRange(ENEMY_WIN_MONEY));
+    mechText = `<span class="good-txt">Your strength prevails — ${data.name} falls. Victory!</span><br><span class="good-txt">⬆ You gain a level · +${gained} coins.</span>`;
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    const gained = addMoney(rollRange(ENEMY_LOSS_MONEY));
+    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude}) · +${gained} coins.</span>`;
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
@@ -1105,11 +1276,12 @@ async function startTreasure(data, canFlee) {
   renderInputPanel();
   const eff = getEff();
   const diffCat = getDifficultyCategory(data.difficulty);
+  data.reward = normalizeRewardData(data);
+  fillDefaultRewardName(data.reward);
   const defaultText = `You spot something in the shadows — a hidden cache, or perhaps a snare. The Difficulty is <span class="highlight">${diffCat}</span>. Your Agility is <span class="highlight">${eff.perception}</span>. Proceed carefully…`;
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-  const item = data.rewardItem
-  const prompt = buildTreasureStartPrompt(diffCat, getPlayerContext(), item);
+  const prompt = buildTreasureStartPrompt(diffCat, getPlayerContext(), data.reward);
   const narration = await generateNarration(AI_CONTEXT, prompt);
 
   const logDiv = document.getElementById('log');
@@ -1130,11 +1302,12 @@ async function resolveTreasure(data) {
   const won = eff.perception > data.difficulty;
 
   let mechText = '';
-  let item = null;
+  let granted = null;
   let s = null;
   if (won) {
-    item = addItemFixed(data.rewardItem);
-    mechText = `<span class="good-txt">Your agility (${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: <em>${item.name}</em> (${itemDescription(item)})</span>`;
+    data.reward = normalizeRewardData(data);
+    granted = grantReward(data.reward);
+    mechText = `<span class="good-txt">Your agility (${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: ${grantedRewardText(granted)}</span>`;
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
@@ -1142,8 +1315,7 @@ async function resolveTreasure(data) {
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-  const item_name = data.rewardItem.name
-  const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), item_name, data, s);
+  const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), data.reward, data, s);
   const narration = await generateNarration(AI_CONTEXT, prompt);
 
   const logDiv = document.getElementById('log');
@@ -1194,22 +1366,23 @@ async function resolveNPC(data) {
   renderInputPanel();
   const eff = getEff();
   const won = eff.persuasion >= data.check;
+  data.reward = normalizeRewardData(data);
+  fillDefaultRewardName(data.reward);
 
   let mechText = '';
-  let item = null;
+  let granted = null;
   let s = null;
   if (won) {
-    item = addItemFixed(data.rewardItem);
-    mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: <em>${item.name}</em> (${itemDescription(item)})</span>`;
+    granted = grantReward(data.reward);
+    mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: ${grantedRewardText(granted)}</span>`;
   } else {
-    item = data.rewardItem.name;
     s = applyCurseFromEncounter(data);
     mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
   addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
 
-  const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), item, s);
+  const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), data.reward, s);
   const narration = await generateNarration(AI_CONTEXT, prompt);
 
   const logDiv = document.getElementById('log');
@@ -1258,6 +1431,16 @@ function returnCurseToPool(curse) {
   if (bucket) bucket.push(curse.name);
 }
 
+function payForTownService(data) {
+  const cost = Math.max(0, Math.floor(Number(data.serviceCost) || 0));
+  if (!spendMoney(cost)) {
+    addLog(`<span class="danger-txt">${data.name} charges ${cost} coins, but you only have ${G.player.money}.</span>`, 'event-neutral');
+    renderUI();
+    return false;
+  }
+  return true;
+}
+
 async function startTownNpc(data) {
   if (!data) {
     addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
@@ -1278,6 +1461,7 @@ async function startTownNpc(data) {
 }
 
 async function visitHealer(data) {
+  if (!payForTownService(data)) return;
   G.phase = 'loading';
   renderInputPanel();
   const maxHp = PLAYER_MAX_HP;
@@ -1285,8 +1469,8 @@ async function visitHealer(data) {
   G.player.hp = maxHp;
 
   const fallbackText = previousHp < maxHp
-    ? `<span class="good-txt">${data.name} restores your HP to full.</span>`
-    : `<span class="info-txt">${data.name} says your wounds are already healed.</span>`;
+    ? `<span class="good-txt">${data.name} restores your HP to full for ${data.serviceCost} coins.</span>`
+    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and says your wounds are already healed.</span>`;
 
   addLog(`<span class="info-txt">The healer is speaking...</span>`, 'event-neutral');
   const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
@@ -1303,14 +1487,15 @@ async function visitHealer(data) {
 }
 
 async function visitCurseRemover(data) {
+  if (!payForTownService(data)) return;
   G.phase = 'loading';
   renderInputPanel();
   const removed = G.player.statuses.length ? G.player.statuses.shift() : null;
   if (removed) returnCurseToPool(removed);
 
   const fallbackText = removed
-    ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em>.</span>`
-    : `<span class="info-txt">${data.name} finds no curses to remove.</span>`;
+    ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em> for ${data.serviceCost} coins.</span>`
+    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and finds no curses to remove.</span>`;
 
   addLog(`<span class="info-txt">The curse remover is speaking...</span>`, 'event-neutral');
   const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
@@ -1380,8 +1565,14 @@ function movePlayerInDungeon(dir) {
     });
     return;
   }
+  if (cell.encounterState === 'failed-empty') {
+    checkGameOver().then(isGameOver => {
+      if (!isGameOver) renderUI();
+    });
+    return;
+  }
 
-  const canFlee = !cell.fled && !G.fleeCooldown && cell.encounterState !== 'failed-respawnable';
+  const canFlee = !cell.fled && !G.fleeCooldown;
   cell.visited = true;
 
   if (cell.type === 'enemy') startEnemy(cell.data, canFlee);
@@ -1414,6 +1605,7 @@ function movePlayerInTown(dir) {
 
 function enterTown() {
   if (G.currentLocation !== 'dungeon') return;
+  respawnFailedDungeonEncounters();
   G.currentLocation = 'town';
   G.phase = 'playing';
   G.pendingResolveFn = null;
@@ -1515,7 +1707,7 @@ function renderStatusPanel() {
   const activeHtml = equippedItems.length
     ? equippedItems.map(e =>
       `<span class="status-tag" style="border-color:rgba(90,170,208,0.5);background:rgba(58,96,128,0.15);color:#7ecfee;">
-          ${e.name}: +${e.magnitude} ${attrLabel(e.attribute)}
+          ${e.name}: ${itemDescription(e)}
         </span>`).join('')
     : '<span class="empty-note">None</span>';
 
@@ -1543,6 +1735,7 @@ function renderStatusPanel() {
     <span class="stat-label">HP</span>
       <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / ${PLAYER_MAX_HP}</span></div>
     <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / PLAYER_MAX_HP) * 100}%"></div></div>
+    <div class="stat-row"><span class="stat-label">Coins</span><span class="stat-val">${p.money}</span></div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     ${attrLine('Power', p.base.power, eff.power)}
@@ -1581,7 +1774,8 @@ function renderInputPanel() {
       actionButtons.push(`<button class="btn btn-continue" onclick="enterDungeon()">Enter Dungeon</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
-      actionButtons.push(`<button class="btn btn-continue" onclick="startTownNpc(getCurrentCell().data)">Talk</button>`);
+      const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
+      actionButtons.push(`<button class="btn btn-continue" onclick="startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
     }
     buttons.innerHTML = Object.keys(DIRECTIONS).map(dir =>
       `<button class="btn btn-dir" onclick="movePlayer('${dir}')">${dir}</button>`).join('');

@@ -44,16 +44,24 @@ Player state: ${playerContext}
 Describe the resolution of the encounter. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`;
 }
 
-function buildTreasureStartPrompt(diffCat, playerContext, item) {
-  return `The player has encountered the ${item.name}, but it could be a trap. (Difficulty: ${diffCat}).
+function promptRewardLabel(reward) {
+  if (!reward) return 'a reward';
+  if (reward.type === 'money') return `${reward.amount} coins`;
+  if (reward.type === 'item' && reward.item) return reward.item.name;
+  return 'a reward';
+}
+
+function buildTreasureStartPrompt(diffCat, playerContext, reward) {
+  return `The player has encountered ${promptRewardLabel(reward)}, but it could be a trap. (Difficulty: ${diffCat}).
 Player state: ${playerContext}
 Describe the start of the encounter, before the player chooses to investigate or flee.`;
 }
 
-function buildTreasureResolvePrompt(won, playerContext, item, data, s) {
-  return `The player investigated the ${item.name}.
+function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
+  const rewardText = promptRewardLabel(reward);
+  return `The player investigated ${rewardText}.
 Player state: ${playerContext}
-Outcome: The player ${won ? `avoided a trap and grabbed the ${item.name}` : `the ${item.name} was enchanted with a trap, and cursed the player with ${s.name}`}.
+Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and cursed the player with ${s.name}`}.
 Describe the resolution of the encounter. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state. Do not describe events not related to the outcome of the encounter, and the curse acquired.`;
 }
 
@@ -63,10 +71,11 @@ Player state: ${playerContext}
 Describe the start of the encounter, before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
 }
 
-function buildNpcResolvePrompt(data, won, playerContext, item, s) {
+function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
+  const rewardText = promptRewardLabel(reward);
   return `The player talked to the NPC: ${data.name}.
 Player state: ${playerContext}
-Outcome: The player ${won ? `WON and received a gift: ${item.name}` : `LOST and angered the NPC, and is cursed with ${s.name}, The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
+Outcome: The player ${won ? `WON and received a gift: ${rewardText}` : `LOST and angered the NPC, and is cursed with ${s.name}, The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
 Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC. Do not describe events not related to the outcome of the encounter, and the curse acquired.`;
 }
 
@@ -85,6 +94,7 @@ function buildHealerDialoguePrompt(data, previousHp, maxHp, playerContext) {
 ${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
 Service: The healer restores HP, not curses.
+Service cost paid: ${data.serviceCost || 0} coins
 HP before healing: ${previousHp}/${maxHp}
 HP after healing: ${maxHp}/${maxHp}
 Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the healing, and not invent unrelated events.`;
@@ -98,13 +108,19 @@ function buildCurseRemoverDialoguePrompt(data, removedCurse, playerContext) {
 ${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
 Service: The curse remover removes one curse at a time.
+Service cost paid: ${data.serviceCost || 0} coins
 Curse removed: ${curseText}
 Write a short curse-removal dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the removed curse if any, and not invent unrelated events.`;
 }
 
 function buildPhysicalDescriptionPrompt(data) {
   const equippedItems = data.equippedItems.length
-    ? data.equippedItems.map(item => `${item.name} (+${item.magnitude} ${promptAttrDisplay(item.attribute)})`).join(', ')
+    ? data.equippedItems.map(item => {
+      const effects = Array.isArray(item.effects) && item.effects.length
+        ? item.effects.map(effect => `+${effect.magnitude} ${promptAttrDisplay(effect.attribute)}`).join(', ')
+        : `+${item.magnitude} ${promptAttrDisplay(item.attribute)}`;
+      return `${item.name} (Lvl ${item.level || 1}: ${effects})`;
+    }).join(', ')
     : 'none';
   const curses = data.curses.length
     ? data.curses.map(curse => `${curse.name} (${promptAttrDisplay(curse.attribute)} ${curse.magnitude})`).join(', ')

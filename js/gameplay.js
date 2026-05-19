@@ -15,6 +15,7 @@ let AI_CONTEXT = {
   characterDesc: '',
   townNpcDetails: ''
 };
+let CHRONICLE_INDEX = 0;
 
 function toggleAdvancedSetup(forceVisible) {
   const panel = document.getElementById('advanced-setup-fields');
@@ -1192,8 +1193,8 @@ async function fleeEncounter() {
   G.fleeCooldown = true;
 
   const prompt = buildFleeNarrationPrompt(getPlayerContext());
-  await streamNarrationLog(prompt);
-  addLog(`You flee from the encounter. It remains here should you return.`, 'event-neutral');
+  const narration = await streamNarrationLog(prompt);
+  addLog(`You flee from the encounter. It remains here should you return.`, 'event-neutral', { focus: !narration });
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -1238,8 +1239,8 @@ async function resolveEnemy(data) {
   }
 
   const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext());
-  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
-  addLog(mechText, 'event-enemy');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
+  addLog(mechText, 'event-enemy', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
   if (won) {
@@ -1295,8 +1296,8 @@ async function resolveTreasure(data) {
   }
 
   const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), data.reward, data, s);
-  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
-  addLog(mechText, 'event-treasure');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
+  addLog(mechText, 'event-treasure', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
   if (won) {
@@ -1351,8 +1352,8 @@ async function resolveNPC(data) {
   }
 
   const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), data.reward, s);
-  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
-  addLog(mechText, 'event-npc');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
+  addLog(mechText, 'event-npc', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
   markCurrentDungeonEncounter(won ? 'cleared' : 'failed');
 
@@ -1370,8 +1371,8 @@ async function startItem(data) {
   const defaultText = `You find an item on the floor: <span class="good-txt">${item.name}</span> (${itemDescription(item)}).`;
 
   const prompt = buildFloorItemPrompt(item, getPlayerContext());
-  await streamNarrationLog(prompt);
-  addLog(defaultText, 'event-neutral');
+  const narration = await streamNarrationLog(prompt);
+  addLog(defaultText, 'event-neutral', { focus: !narration });
   markCurrentDungeonEncounter('cleared');
 
   const isGameOver = await checkGameOver();
@@ -1437,8 +1438,8 @@ async function visitHealer(data) {
     : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and says your wounds are already healed.</span>`;
 
   const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
-  await streamNarrationLog(prompt, '<span class="info-txt">The healer is speaking...</span>', 'event-npc');
-  addLog(fallbackText, 'event-neutral');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The healer is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
   if (previousHp < maxHp) await refreshPhysicalDescription(`Town healer restored HP from ${previousHp} to ${maxHp}.`);
   G.phase = 'playing';
   renderUI();
@@ -1456,8 +1457,8 @@ async function visitCurseRemover(data) {
     : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and finds no curses to remove.</span>`;
 
   const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
-  await streamNarrationLog(prompt, '<span class="info-txt">The curse remover is speaking...</span>', 'event-npc');
-  addLog(fallbackText, 'event-neutral');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The curse remover is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
   if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
   G.phase = 'playing';
   renderUI();
@@ -1519,8 +1520,8 @@ async function visitUpgrader(data) {
   const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${data.serviceCost} coins.</span>`;
 
   const prompt = buildUpgraderDialoguePrompt(data, item, previousLevel, getPlayerContext());
-  await streamNarrationLog(prompt, '<span class="info-txt">The upgrader is speaking...</span>', 'event-npc');
-  addLog(fallbackText, 'event-neutral');
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The upgrader is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
   await refreshPhysicalDescription(`Town upgrader improved ${item.name} from level ${previousLevel} to level ${item.level}.`);
   G.phase = 'playing';
   renderUI();
@@ -1747,31 +1748,121 @@ function applyLevelUp(attr) {
   renderUI();
 }
 
-function addLog(html, cls = 'event-neutral') {
+function paginateChronicleText(text, maxChars = 280) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const pages = [];
+  let page = '';
+  for (const word of words) {
+    const next = page ? `${page} ${word}` : word;
+    if (next.length > maxChars && page) {
+      pages.push(page);
+      page = word;
+    } else {
+      page = next;
+    }
+  }
+  if (page) pages.push(page);
+  return pages.length ? pages : [''];
+}
+
+function setChroniclePlainText(el, text) {
+  el._chroniclePages = paginateChronicleText(text);
+  el._chroniclePage = Math.min(el._chroniclePage || 0, el._chroniclePages.length - 1);
+  if (el.classList.contains('active')) {
+    el.textContent = el._chroniclePages[el._chroniclePage];
+  }
+}
+
+function addLog(html, cls = 'event-neutral', options = {}) {
   const div = document.getElementById('log');
   const el = document.createElement('div');
   el.className = `log-entry ${cls}`;
-  el.innerHTML = html;
+  if (options.plainText) setChroniclePlainText(el, html);
+  else el.innerHTML = html;
   div.appendChild(el);
-  document.getElementById('log-panel').scrollTop = 99999;
+  const entries = getChronicleEntries();
+  if (options.focus !== false) CHRONICLE_INDEX = entries.length - 1;
+  updateChronicleVisibility();
   return el;
+}
+
+function getChronicleEntries() {
+  const div = document.getElementById('log');
+  return div ? Array.from(div.querySelectorAll('.log-entry')) : [];
+}
+
+function updateChronicleVisibility() {
+  const entries = getChronicleEntries();
+  if (!entries.length) return;
+  CHRONICLE_INDEX = Math.max(0, Math.min(CHRONICLE_INDEX, entries.length - 1));
+  entries.forEach((entry, index) => {
+    const active = index === CHRONICLE_INDEX;
+    entry.classList.toggle('active', active);
+    if (active && entry._chroniclePages) {
+      entry.textContent = entry._chroniclePages[entry._chroniclePage || 0];
+    }
+  });
+  const hint = document.getElementById('chronicle-hint');
+  if (hint) {
+    const current = entries[CHRONICLE_INDEX];
+    const pageText = current && current._chroniclePages && current._chroniclePages.length > 1
+      ? ` page ${(current._chroniclePage || 0) + 1}/${current._chroniclePages.length}`
+      : '';
+    hint.textContent = CHRONICLE_INDEX < entries.length - 1 || pageText
+      ? `Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`
+      : `Space: chronicle current (${CHRONICLE_INDEX + 1}/${entries.length})`;
+  }
+}
+
+function advanceChronicle() {
+  const entries = getChronicleEntries();
+  if (!entries.length) return false;
+  const current = entries[CHRONICLE_INDEX];
+  if (current && current._chroniclePages && (current._chroniclePage || 0) < current._chroniclePages.length - 1) {
+    current._chroniclePage = (current._chroniclePage || 0) + 1;
+    updateChronicleVisibility();
+    return true;
+  }
+  if (CHRONICLE_INDEX < entries.length - 1) {
+    CHRONICLE_INDEX++;
+    updateChronicleVisibility();
+    return true;
+  }
+  updateChronicleVisibility();
+  return false;
+}
+
+function advanceChronicleForAction() {
+  advanceChronicle();
+}
+
+function focusChronicleEntry(el) {
+  const entries = getChronicleEntries();
+  const index = entries.indexOf(el);
+  if (index >= 0) {
+    CHRONICLE_INDEX = index;
+    updateChronicleVisibility();
+  }
 }
 
 async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
   const el = addLog(placeholderHtml, cls);
+  focusChronicleEntry(el);
   let text = '';
   const narration = await generateNarration(AI_CONTEXT, prompt, {
     onChunk: (chunk, fullText) => {
       text = fullText || (text + chunk);
-      el.textContent = text;
-      document.getElementById('log-panel').scrollTop = 99999;
+      setChroniclePlainText(el, text);
+      focusChronicleEntry(el);
     },
   });
   if (!narration) {
     if (el.parentNode) el.parentNode.removeChild(el);
+    updateChronicleVisibility();
     return null;
   }
-  el.textContent = narration;
+  setChroniclePlainText(el, narration);
+  focusChronicleEntry(el);
   return narration;
 }
 
@@ -1797,8 +1888,8 @@ function renderStatusPanel() {
           <span class="item-name">${item.name}</span>
           <span class="item-effect">${itemDescription(item)}</span>
           ${item.type === 'buff'
-            ? `<button class="btn-use" onclick="toggleEquipItem(${i})">${item.equipped ? 'Unequip' : 'Equip'}</button>`
-            : `<button class="btn-use" onclick="useCurseClearItem(${i})">Use</button>`}
+            ? `<button class="btn-use" onclick="advanceChronicleForAction(); toggleEquipItem(${i})">${item.equipped ? 'Unequip' : 'Equip'}</button>`
+            : `<button class="btn-use" onclick="advanceChronicleForAction(); useCurseClearItem(${i})">Use</button>`}
         </div>`).join('')
     : '<span class="empty-note">Empty</span>';
 
@@ -1844,21 +1935,20 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'playing') {
-    title.textContent = 'Choose Direction';
+    title.textContent = 'Keyboard Movement';
     const cell = getCurrentCell();
     const actionButtons = [];
     if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
-      actionButtons.push(`<button class="btn btn-continue" onclick="enterTown()">Go to Town</button>`);
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterTown()">Go to Town</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-gate') {
-      actionButtons.push(`<button class="btn btn-continue" onclick="enterDungeon()">Enter Dungeon</button>`);
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterDungeon()">Enter Dungeon</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
-      actionButtons.push(`<button class="btn btn-continue" onclick="startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
     }
-    buttons.innerHTML = Object.keys(DIRECTIONS).map(dir =>
-      `<button class="btn btn-dir" onclick="movePlayer('${dir}')">${dir}</button>`).join('');
+    buttons.innerHTML = '<div class="runtime-api-note">Move with WASD or arrow keys. Press Space to advance the chronicle.</div>';
     if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }
@@ -1883,9 +1973,9 @@ function renderInputPanel() {
       resolveIcon = '🗣';
     }
 
-    buttons.innerHTML = `<button class="btn btn-continue" onclick="continueEncounter()">${resolveIcon} &nbsp;${resolveText}</button>`;
+    buttons.innerHTML = `<button class="btn btn-continue" onclick="advanceChronicleForAction(); continueEncounter()">${resolveIcon} &nbsp;${resolveText}</button>`;
     if (G.canFlee) {
-      buttons.innerHTML += `<button class="btn btn-flee" onclick="fleeEncounter()">${fleeIcon} &nbsp;${fleeText}</button>`;
+      buttons.innerHTML += `<button class="btn btn-flee" onclick="advanceChronicleForAction(); fleeEncounter()">${fleeIcon} &nbsp;${fleeText}</button>`;
     } else {
       let reason = G.fleeCooldown ? "You must resolve an encounter before fleeing again." : "You cannot flee from this encounter again.";
       buttons.innerHTML += `<button class="btn btn-flee" disabled style="opacity: 0.5; cursor: not-allowed;" title="${reason}">${fleeIcon} &nbsp;${fleeText}</button>`;
@@ -1899,7 +1989,7 @@ function renderInputPanel() {
       const cur = G.player.base[attr];
       const next = Math.min(MAX_ATTR, cur + 1);
       const cap = cur >= MAX_ATTR;
-      return `<button class="btn btn-attr" onclick="applyLevelUp('${attr}')" ${cap ? 'disabled' : ''}>
+      return `<button class="btn btn-attr" onclick="advanceChronicleForAction(); applyLevelUp('${attr}')" ${cap ? 'disabled' : ''}>
         + ${attrLabel(attr)} &nbsp;(${cur} → ${next})
       </button>`;
     }).join('');
@@ -2097,6 +2187,8 @@ function skipTheme() {
 
 function startGame(className) {
   initState(className);
+  CHRONICLE_INDEX = 0;
+  document.body.classList.add('game-active');
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('game-container').style.display = 'grid';
   addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
@@ -2104,7 +2196,13 @@ function startGame(className) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (!G || G.phase !== 'playing') return;
+  if (!G) return;
+  if (e.key === ' ' || e.code === 'Space') {
+    e.preventDefault();
+    advanceChronicle();
+    return;
+  }
+  if (G.phase !== 'playing') return;
   const arrows = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
   const wsad =
     e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W'

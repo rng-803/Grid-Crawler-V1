@@ -1539,6 +1539,21 @@ function chooseInventoryIndex(items, label, formatter) {
   return items[choiceIndex].index;
 }
 
+function chooseInventoryIndexes(items, label, formatter) {
+  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
+  const raw = prompt(`${label}:\n${choices}\n\nEnter one or more numbers separated by commas.`, '1');
+  if (raw == null) return [];
+  const picked = [];
+  const seen = new Set();
+  for (const part of String(raw).split(',')) {
+    const choiceIndex = Number(part.trim()) - 1;
+    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length || seen.has(choiceIndex)) continue;
+    seen.add(choiceIndex);
+    picked.push(items[choiceIndex].index);
+  }
+  return picked;
+}
+
 async function visitUpgrader(data) {
   const eligible = G.player.inventory
     .map((item, index) => ({ item, index }))
@@ -1585,40 +1600,46 @@ async function visitUpgrader(data) {
 }
 
 async function visitMerchant(data) {
-  const sellable = G.player.inventory.map((item, index) => ({ item, index }));
+  const sellable = G.player.inventory
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !(item.type === 'buff' && item.equipped));
   if (!sellable.length) {
-    addLog(`<span class="info-txt">${data.name} finds nothing in your pack worth buying.</span>`, 'event-neutral');
+    addLog(`<span class="info-txt">${data.name} only buys unequipped items.</span>`, 'event-neutral');
     renderUI();
     return;
   }
 
-  const itemIndex = chooseInventoryIndex(
+  const itemIndexes = chooseInventoryIndexes(
     sellable,
-    'Choose an item to sell',
+    'Choose item(s) to sell',
     item => `${itemDescription(item)} · ${merchantItemPrice(item)} coins`,
   );
-  if (itemIndex < 0) {
+  if (!itemIndexes.length) {
     addLog(`<span class="info-txt">No item was sold.</span>`, 'event-neutral');
     renderUI();
     return;
   }
 
-  G.phase = 'loading';
-  renderInputPanel();
-  const sold = G.player.inventory.splice(itemIndex, 1)[0];
-  const price = addMoney(merchantItemPrice(sold));
-  const fallbackText = `<span class="good-txt">${data.name} buys <em>${sold.name}</em> for ${price} coins.</span>`;
+  const sold = [];
+  let total = 0;
+  for (const index of itemIndexes.sort((a, b) => b - a)) {
+    const item = G.player.inventory[index];
+    if (!item || (item.type === 'buff' && item.equipped)) continue;
+    const price = merchantItemPrice(item);
+    total += price;
+    sold.push({ item, price });
+    G.player.inventory.splice(index, 1);
+  }
 
-  addLog(`<span class="info-txt">The merchant is speaking...</span>`, 'event-neutral');
-  const prompt = buildMerchantDialoguePrompt(data, sold, price, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
+  if (!sold.length) {
+    addLog(`<span class="info-txt">No item was sold.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
 
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
-  addLog(fallbackText, 'event-neutral');
-  await refreshPhysicalDescription(`Sold ${sold.name} to a town merchant.`);
+  addMoney(total);
+  const soldText = sold.reverse().map(({ item, price }) => `<em>${item.name}</em> (${price} coins)`).join(', ');
+  addLog(`<span class="good-txt">${data.name} buys ${soldText}. Total: ${total} coins.</span>`, 'event-neutral');
   G.phase = 'playing';
   renderUI();
 }

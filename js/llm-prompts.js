@@ -126,16 +126,6 @@ New item effect: ${itemDescriptionForPrompt(item)}
 Write a short upgrade dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the upgraded item, and not invent unrelated events.`;
 }
 
-function buildMerchantDialoguePrompt(data, item, price, playerContext) {
-  return `The player visited a town merchant: ${data.name}.
-${buildTownNpcDetailText(data)}
-Player state: ${playerContext}
-Service: The merchant buys unwanted items from the player.
-Item sold: ${item.name}
-Sale price: ${price} coins
-Write a short merchant dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the sold item, and not invent unrelated events.`;
-}
-
 function itemDescriptionForPrompt(item) {
   if (!item || item.type === 'curseClear') return 'removes one curse';
   const effects = Array.isArray(item.effects) && item.effects.length

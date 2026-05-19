@@ -37,9 +37,12 @@ Player state: ${playerContext}
 Describe the start of the encounter, before the player chooses to engage or flee.`;
 }
 
-function buildEnemyResolvePrompt(data, won, playerContext) {
+function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
+  const curseText = acquiredCurse
+    ? ` Acquired curse: ${acquiredCurse.name} (${promptAttrDisplay(acquiredCurse.attribute)} ${acquiredCurse.magnitude}).`
+    : '';
   return `The player engaged the enemy: ${data.name}.
-Outcome: The player ${won ? 'WON' : `LOST. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
+Outcome: The player ${won ? 'WON' : `LOST. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}${curseText}
 Player state: ${playerContext}
 Describe the resolution of the encounter. `;
 }

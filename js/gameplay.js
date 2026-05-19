@@ -1238,7 +1238,7 @@ async function resolveEnemy(data) {
     mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude}) · +${gained} coins.</span>`;
   }
 
-  const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext());
+  const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext(), s);
   const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
   addLog(mechText, 'event-enemy', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);

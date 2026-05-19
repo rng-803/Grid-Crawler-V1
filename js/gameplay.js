@@ -899,15 +899,8 @@ async function checkGameOver() {
     else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
 
     addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss');
-    addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
     const prompt = buildGameOverPrompt(reasonText, getPlayerContext());
-    const narration = await generateNarration(AI_CONTEXT, prompt);
-
-    const logDiv = document.getElementById('log');
-    if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-    if (narration) addLog(narration, 'event-loss');
+    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss');
 
     G.phase = 'gameover-loss';
     renderUI();
@@ -1198,15 +1191,8 @@ async function fleeEncounter() {
 
   G.fleeCooldown = true;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildFleeNarrationPrompt(getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-neutral');
+  await streamNarrationLog(prompt);
   addLog(`You flee from the encounter. It remains here should you return.`, 'event-neutral');
 
   const isGameOver = await checkGameOver();
@@ -1223,16 +1209,11 @@ async function startEnemy(data, canFlee) {
   const diffCat = getDifficultyCategory(data.power);
   const defaultText = `You enter a chamber and face <span class="highlight">${data.name}</span>. Its Power is <span class="highlight">${diffCat}</span>. Your effective Power is <span class="highlight">${eff.power}</span>. Brace yourself…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildEnemyStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-enemy'),
+    () => { if (!narration) addLog(defaultText, 'event-enemy'); },
     () => resolveEnemy(data),
     canFlee,
     'enemy'
@@ -1256,15 +1237,8 @@ async function resolveEnemy(data) {
     mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude}) · +${gained} coins.</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-enemy');
+  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
   addLog(mechText, 'event-enemy');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
@@ -1290,15 +1264,11 @@ async function startTreasure(data, canFlee) {
   fillDefaultRewardName(data.reward);
   const defaultText = `You spot something in the shadows — a hidden cache, or perhaps a snare. The Difficulty is <span class="highlight">${diffCat}</span>. Your Agility is <span class="highlight">${eff.perception}</span>. Proceed carefully…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
   const prompt = buildTreasureStartPrompt(diffCat, getPlayerContext(), data.reward);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-treasure'),
+    () => { if (!narration) addLog(defaultText, 'event-treasure'); },
     () => resolveTreasure(data),
     canFlee,
     'treasure'
@@ -1324,14 +1294,8 @@ async function resolveTreasure(data) {
     mechText = `<span class="danger-txt">You trigger the treasure's trap (Difficulty ${data.difficulty} vs Agility ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
   const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), data.reward, data, s);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-treasure');
+  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
   addLog(mechText, 'event-treasure');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
@@ -1355,16 +1319,11 @@ async function startNPC(data, canFlee) {
   const diffCat = getDifficultyCategory(data.check);
   const defaultText = `You encounter <span class="highlight">${data.name}</span>. They eye you warily. The Persuasion check is <span class="highlight">${diffCat}</span>. Your Persuasion is <span class="highlight">${eff.persuasion}</span>. Choose your words…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildNpcStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-npc'),
+    () => { if (!narration) addLog(defaultText, 'event-npc'); },
     () => resolveNPC(data),
     canFlee,
     'npc'
@@ -1387,18 +1346,12 @@ async function resolveNPC(data) {
     mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: ${grantedRewardText(granted)}</span>`;
   } else {
     s = applyCurseFromEncounter(data);
-    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    damage(1);
+    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), data.reward, s);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
+  await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
   addLog(mechText, 'event-npc');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
   markCurrentDungeonEncounter(won ? 'cleared' : 'failed');
@@ -1416,15 +1369,8 @@ async function startItem(data) {
   const item = addItemFixed(data.pickup);
   const defaultText = `You find an item on the floor: <span class="good-txt">${item.name}</span> (${itemDescription(item)}).`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildFloorItemPrompt(item, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-neutral');
+  await streamNarrationLog(prompt);
   addLog(defaultText, 'event-neutral');
   markCurrentDungeonEncounter('cleared');
 
@@ -1490,14 +1436,8 @@ async function visitHealer(data) {
     ? `<span class="good-txt">${data.name} restores your HP to full for ${data.serviceCost} coins.</span>`
     : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and says your wounds are already healed.</span>`;
 
-  addLog(`<span class="info-txt">The healer is speaking...</span>`, 'event-neutral');
   const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
+  await streamNarrationLog(prompt, '<span class="info-txt">The healer is speaking...</span>', 'event-npc');
   addLog(fallbackText, 'event-neutral');
   if (previousHp < maxHp) await refreshPhysicalDescription(`Town healer restored HP from ${previousHp} to ${maxHp}.`);
   G.phase = 'playing';
@@ -1515,14 +1455,8 @@ async function visitCurseRemover(data) {
     ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em> for ${data.serviceCost} coins.</span>`
     : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and finds no curses to remove.</span>`;
 
-  addLog(`<span class="info-txt">The curse remover is speaking...</span>`, 'event-neutral');
   const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
+  await streamNarrationLog(prompt, '<span class="info-txt">The curse remover is speaking...</span>', 'event-npc');
   addLog(fallbackText, 'event-neutral');
   if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
   G.phase = 'playing';
@@ -1584,14 +1518,8 @@ async function visitUpgrader(data) {
   setItemLevel(item, previousLevel + 1);
   const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${data.serviceCost} coins.</span>`;
 
-  addLog(`<span class="info-txt">The upgrader is speaking...</span>`, 'event-neutral');
   const prompt = buildUpgraderDialoguePrompt(data, item, previousLevel, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
+  await streamNarrationLog(prompt, '<span class="info-txt">The upgrader is speaking...</span>', 'event-npc');
   addLog(fallbackText, 'event-neutral');
   await refreshPhysicalDescription(`Town upgrader improved ${item.name} from level ${previousLevel} to level ${item.level}.`);
   G.phase = 'playing';
@@ -1826,6 +1754,25 @@ function addLog(html, cls = 'event-neutral') {
   el.innerHTML = html;
   div.appendChild(el);
   document.getElementById('log-panel').scrollTop = 99999;
+  return el;
+}
+
+async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
+  const el = addLog(placeholderHtml, cls);
+  let text = '';
+  const narration = await generateNarration(AI_CONTEXT, prompt, {
+    onChunk: (chunk, fullText) => {
+      text = fullText || (text + chunk);
+      el.textContent = text;
+      document.getElementById('log-panel').scrollTop = 99999;
+    },
+  });
+  if (!narration) {
+    if (el.parentNode) el.parentNode.removeChild(el);
+    return null;
+  }
+  el.textContent = narration;
+  return narration;
 }
 
 function renderStatusPanel() {
@@ -1990,7 +1937,7 @@ function renderMinimap() {
       const visible = location === 'town' || cell.visited || cell.type === 'start';
       if (visible) {
         cls += ' visited';
-        if (cell.type === 'wall') { cls += ' wall'; content = '#'; }
+        if (cell.type === 'wall') { cls += ' wall'; content = ''; }
         if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
         if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
         if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }

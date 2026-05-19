@@ -590,8 +590,25 @@
     }
 
     .minimap-cell.wall {
-      background: #17130d;
-      color: #6f6250;
+      position: relative;
+      background: #6f6f6f;
+      color: transparent;
+    }
+
+    .minimap-cell.wall::before,
+    .minimap-cell.wall::after {
+      content: "";
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: 6px;
+      height: 2px;
+      background: #202020;
+      transform: rotate(45deg);
+    }
+
+    .minimap-cell.wall::after {
+      transform: rotate(-45deg);
     }
 
     .minimap-cell.fled {

@@ -104,6 +104,9 @@ async function chatCompletion(userContent, options = {}) {
     model,
     messages: [{ role: 'user', content: userContent }],
   };
+  if (options.stream) {
+    body.stream = true;
+  }
   if (options.responseFormat) {
     body.response_format = options.responseFormat;
   }
@@ -119,6 +122,57 @@ async function chatCompletion(userContent, options = {}) {
     });
 
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+    if (options.stream && response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          const lines = part.split('\n').map(line => line.trim()).filter(Boolean);
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (payload === '[DONE]') {
+              recordApiTiming({
+                label,
+                durationMs: nowMs() - startedAt,
+                ok: true,
+                extra: model ? `model=${model}; stream=true` : 'stream=true',
+              });
+              return fullText;
+            }
+            try {
+              const parsed = JSON.parse(payload);
+              const content = parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content;
+              if (content) {
+                fullText += content;
+                if (typeof options.onChunk === 'function') options.onChunk(content, fullText);
+              }
+            } catch (_) {
+              // Ignore malformed stream keepalive chunks.
+            }
+          }
+        }
+      }
+
+      recordApiTiming({
+        label,
+        durationMs: nowMs() - startedAt,
+        ok: true,
+        extra: model ? `model=${model}; stream=true` : 'stream=true',
+      });
+      return fullText;
+    }
+
     const data = await response.json();
     recordApiTiming({
       label,
@@ -138,12 +192,16 @@ async function chatCompletion(userContent, options = {}) {
   }
 }
 
-async function generateNarration(aiContext, promptText) {
+async function generateNarration(aiContext, promptText, options = {}) {
   const fullPrompt = buildNarratorFullPrompt(aiContext, promptText);
   try {
     const { apiKey } = getApiFromDom();
     if (!apiKey) return null;
-    return await chatCompletion(fullPrompt, { label: 'narration' });
+    return await chatCompletion(fullPrompt, {
+      label: options.label || 'narration',
+      stream: Boolean(options.onChunk),
+      onChunk: options.onChunk,
+    });
   } catch (err) {
     console.error("Narration error:", err);
     return null;

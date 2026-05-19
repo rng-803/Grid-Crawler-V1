@@ -1532,6 +1532,7 @@ function movePlayerInDungeon(dir) {
   }
 
   if (grid.cells[np.y][np.x].type === 'wall') {
+    grid.cells[np.y][np.x].visited = true;
     addLog(`A wall of cold stone blocks your path.`, 'event-neutral');
     renderUI();
     return;
@@ -1857,6 +1858,7 @@ function renderMinimap() {
       const visible = location === 'town' || cell.visited || cell.type === 'start';
       if (visible) {
         cls += ' visited';
+        if (cell.type === 'wall') { cls += ' wall'; content = '#'; }
         if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
         if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
         if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }

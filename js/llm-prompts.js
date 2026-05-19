@@ -61,8 +61,8 @@ function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
   const rewardText = promptRewardLabel(reward);
   return `The player investigated ${rewardText}.
 Player state: ${playerContext}
-Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and cursed the player with ${s.name}`}.
-Describe the resolution of the encounter. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state. Do not describe events not related to the outcome of the encounter, and the curse acquired.`;
+Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and cursed the player with ${s.name} The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
+Describe the resolution of the encounter.  Do not describe events not related to the outcome of the encounter.`;
 }
 
 function buildNpcStartPrompt(data, diffCat, playerContext) {
@@ -76,7 +76,7 @@ function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
   return `The player talked to the NPC: ${data.name}.
 Player state: ${playerContext}
 Outcome: The player ${won ? `WON and received a gift: ${rewardText}` : `LOST and angered the NPC, and is cursed with ${s.name}, The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
-Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC. Do not describe events not related to the outcome of the encounter, and the curse acquired.`;
+Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC. Do not describe events not related to the outcome of the encounter.`;
 }
 
 function buildFloorItemPrompt(item, playerContext) {
@@ -93,10 +93,8 @@ function buildHealerDialoguePrompt(data, previousHp, maxHp, playerContext) {
   return `The player visited a town healer: ${data.name}.
 ${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
-Service: The healer restores HP, not curses.
+Service: The healer restores HP.
 Service cost paid: ${data.serviceCost || 0} coins
-HP before healing: ${previousHp}/${maxHp}
-HP after healing: ${maxHp}/${maxHp}
 Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the healing, and not invent unrelated events.`;
 }
 
@@ -120,8 +118,6 @@ Player state: ${playerContext}
 Service: The upgrader improves one status item, not curse-clear items.
 Service cost paid: ${data.serviceCost || 0} coins
 Item upgraded: ${item.name}
-Previous item level: ${previousLevel}
-New item level: ${item.level}
 New item effect: ${itemDescriptionForPrompt(item)}
 Write a short upgrade dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the upgraded item, and not invent unrelated events.`;
 }
@@ -168,7 +164,8 @@ function buildNameGeneratorContext(inputs, detailKind) {
     context += ` The enemies found should include ${inputs.enemyDetails}.`;
   }
   if (detailKind === 'curse' && inputs.curseDetails) {
-    context += ` The curses should include ${inputs.curseDetails}.`;
+    context += ` These are the types of curses selected by the user: ${inputs.curseDetails}.`;
+    context += ' Include all of the mentioned curse types, avoid redundancy and similar curses, and prioritize the curse types selected by the user above other directives'
     context += ' Curse names should be easy to understand and direct. Avoid vague or overly abstract curse names.';
   }
   return context;
@@ -221,8 +218,6 @@ Return ONLY valid JSON in this shape:
 function buildCurseNamesPrompt(inputs, requirements) {
   const needsJson = JSON.stringify(requirements, null, 2);
   return `You are naming curses for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'curse')}
-
-Generate a reusable global pool of curse names for the whole run. Follow the requested weighted distribution exactly. Names for magnitude -2 should sound harsher than names for magnitude -1. The attribute affected matters less than clarity and tone, but the result should still feel appropriate for that category.
 
 COUNTS NEEDED (JSON):
 ${needsJson}

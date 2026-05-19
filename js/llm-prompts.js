@@ -76,6 +76,16 @@ Player state: ${playerContext}
 Describe the player picking up the item, in a short paragraph`;
 }
 
+function buildHealerDialoguePrompt(data, removedCurses, playerContext) {
+  const curseText = removedCurses.length
+    ? removedCurses.map(curse => `${curse.name} (${promptAttrDisplay(curse.attribute)} ${curse.magnitude})`).join(', ')
+    : 'none';
+  return `The player visited a town healer: ${data.name}.
+Player state: ${playerContext}
+Curses removed: ${curseText}
+Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the removed curses if any, and not invent unrelated events.`;
+}
+
 function buildPhysicalDescriptionPrompt(data) {
   const equippedItems = data.equippedItems.length
     ? data.equippedItems.map(item => `${item.name} (+${item.magnitude} ${promptAttrDisplay(item.attribute)})`).join(', ')

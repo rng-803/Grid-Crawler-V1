@@ -175,14 +175,15 @@ function togglePromptDebug() {
 
 function initState(className) {
   const base = CLASSES[className];
-  let grid;
+  let dungeonGrid;
   if (PENDING_NAMED_GRID) {
-    grid = cloneGridForPlay(PENDING_NAMED_GRID);
+    dungeonGrid = cloneGridForPlay(PENDING_NAMED_GRID);
     PENDING_NAMED_GRID = null;
   } else {
-    grid = generateGrid();
-    fillDefaultNames(grid);
+    dungeonGrid = generateGrid();
+    fillDefaultNames(dungeonGrid);
   }
+  const townGrid = generateTown();
   G = {
     player: {
       hp: 5,
@@ -193,9 +194,18 @@ function initState(className) {
       inventory: [],
       physicalDescription: AI_CONTEXT.characterDesc || `A ${className} adventurer.`,
       physicalDescriptionLoading: false,
-      pos: { x: grid.start.x, y: grid.start.y },
     },
-    grid,
+    currentLocation: 'dungeon',
+    locations: {
+      dungeon: {
+        grid: dungeonGrid,
+        pos: { x: dungeonGrid.start.x, y: dungeonGrid.start.y },
+      },
+      town: {
+        grid: townGrid,
+        pos: { x: townGrid.start.x, y: townGrid.start.y },
+      },
+    },
     phase: 'playing',
     turns: 0,
     pendingResolveFn: null,
@@ -211,6 +221,35 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function attrLabel(attr) {
   if (attr === 'perception') return 'Agility';
   return attr.charAt(0).toUpperCase() + attr.slice(1);
+}
+
+function getLocationState(location = G.currentLocation) {
+  return G.locations[location];
+}
+
+function getCurrentGrid() {
+  return getLocationState().grid;
+}
+
+function getCurrentPos() {
+  return getLocationState().pos;
+}
+
+function setCurrentPos(pos) {
+  getLocationState().pos = { x: pos.x, y: pos.y };
+}
+
+function getCurrentCell() {
+  const pos = getCurrentPos();
+  return getCurrentGrid().cells[pos.y][pos.x];
+}
+
+function markCurrentDungeonEncounter(outcome) {
+  if (G.currentLocation !== 'dungeon') return;
+  const cell = getCurrentCell();
+  if (!cell || !['enemy', 'treasure', 'npc', 'item'].includes(cell.type)) return;
+  cell.encounterState = outcome === 'cleared' ? 'cleared' : 'failed-respawnable';
+  cell.fled = false;
 }
 
 function promptAttrKey(attr) {
@@ -721,6 +760,7 @@ function generateGrid() {
 
     cells[startY][startX].type = 'start';
     cells[startY][startX].visited = true;
+    cells[startY][startX].encounterState = 'none';
 
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (cells[y][x].type) continue;
@@ -734,6 +774,7 @@ function generateGrid() {
           failCurse: { attribute: failAttr, magnitude: -1 },
           name: '',
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'treasure') {
         const failMag = rollD(2);
         const failAttr = pick(['power', 'perception', 'persuasion']);
@@ -742,6 +783,7 @@ function generateGrid() {
           failCurse: { attribute: failAttr, magnitude: -failMag },
           rewardItem: rollItemData(),
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'npc') {
         const failAttr = pick(['power', 'perception', 'persuasion']);
         cells[y][x].data = {
@@ -750,10 +792,12 @@ function generateGrid() {
           name: '',
           rewardItem: rollItemData(),
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'item') {
         cells[y][x].data = {
           pickup: rollItemData(),
         };
+        cells[y][x].encounterState = 'active';
       }
     }
 
@@ -767,9 +811,53 @@ function cloneGridForPlay(grid) {
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
     const c = g.cells[y][x];
     c.visited = c.type === 'start';
+    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'exit' || c.type === 'wall' ? 'none' : 'active');
     c.fled = false;
   }
   return g;
+}
+
+function generateTown() {
+  const start = { x: Math.floor(TOWN_WIDTH / 2), y: TOWN_HEIGHT - 1 };
+  const cells = Array.from({ length: TOWN_HEIGHT }, (_, y) =>
+    Array.from({ length: TOWN_WIDTH }, (_, x) => ({
+      type: 'town-empty',
+      data: {},
+      visited: true,
+      revealed: true,
+      fled: false,
+      encounterState: 'none',
+    })));
+
+  cells[start.y][start.x] = {
+    type: 'town-gate',
+    data: {},
+    visited: true,
+    revealed: true,
+    fled: false,
+    encounterState: 'none',
+  };
+
+  const npcPositions = [];
+  for (let y = 0; y < TOWN_HEIGHT; y++) for (let x = 0; x < TOWN_WIDTH; x++) {
+    if (x === start.x && y === start.y) continue;
+    npcPositions.push({ x, y });
+  }
+  const healerPos = pick(npcPositions);
+  cells[healerPos.y][healerPos.x] = {
+    type: 'town-npc',
+    data: {
+      role: 'healer',
+      name: 'the healer',
+      mapIcon: '+',
+    },
+    visited: true,
+    revealed: true,
+    fled: false,
+    encounterState: 'active',
+  };
+
+  return { cells, start, healer: healerPos };
 }
 
 function fillDefaultItemName(item) {
@@ -845,7 +933,8 @@ async function continueEncounter() {
   G.pendingResolveFn = null;
   G.canFlee = false;
 
-  const cell = G.grid.cells[G.player.pos.y][G.player.pos.x];
+  const pos = getCurrentPos();
+  const cell = getCurrentGrid().cells[pos.y][pos.x];
   cell.fled = false;
 
   await fn();
@@ -857,8 +946,10 @@ async function continueEncounter() {
 }
 
 async function fleeEncounter() {
-  const cell = G.grid.cells[G.player.pos.y][G.player.pos.x];
+  const pos = getCurrentPos();
+  const cell = getCurrentGrid().cells[pos.y][pos.x];
   cell.fled = true;
+  if (G.currentLocation === 'dungeon') cell.encounterState = 'failed-respawnable';
   G.pendingResolveFn = null;
   G.canFlee = false;
   G.phase = 'loading';
@@ -935,8 +1026,12 @@ async function resolveEnemy(data) {
   addLog(mechText, 'event-enemy');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
-  if (won) levelUp();
+  if (won) {
+    markCurrentDungeonEncounter('cleared');
+    levelUp();
+  }
   else {
+    markCurrentDungeonEncounter('failed');
     const isGameOver = await checkGameOver();
     if (!isGameOver) {
       G.phase = 'playing';
@@ -997,8 +1092,12 @@ async function resolveTreasure(data) {
   addLog(mechText, 'event-treasure');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
-  if (won) levelUp();
+  if (won) {
+    markCurrentDungeonEncounter('cleared');
+    levelUp();
+  }
   else {
+    markCurrentDungeonEncounter('failed');
     const isGameOver = await checkGameOver();
     if (!isGameOver) {
       G.phase = 'playing';
@@ -1058,6 +1157,7 @@ async function resolveNPC(data) {
   if (narration) addLog(narration, 'event-npc');
   addLog(mechText, 'event-npc');
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
+  markCurrentDungeonEncounter(won ? 'cleared' : 'failed');
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -1082,6 +1182,7 @@ async function startItem(data) {
 
   if (narration) addLog(narration, 'event-neutral');
   addLog(defaultText, 'event-neutral');
+  markCurrentDungeonEncounter('cleared');
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -1090,9 +1191,61 @@ async function startItem(data) {
   }
 }
 
+function returnCurseToPool(curse) {
+  ensureRuntimeCursePools();
+  const bucket = AVAILABLE_CURSE_POOLS[curse.attribute] && AVAILABLE_CURSE_POOLS[curse.attribute][String(curse.magnitude)];
+  if (bucket) bucket.push(curse.name);
+}
+
+async function startTownNpc(data) {
+  if (!data || data.role !== 'healer') {
+    addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+  await visitHealer(data);
+}
+
+async function visitHealer(data) {
+  G.phase = 'loading';
+  renderInputPanel();
+  const removed = G.player.statuses.splice(0);
+  for (const curse of removed) returnCurseToPool(curse);
+
+  const removedText = removed.length
+    ? removed.map(curse => `<em>${curse.name}</em>`).join(', ')
+    : 'no curses';
+  const fallbackText = removed.length
+    ? `<span class="good-txt">${data.name} removes ${removedText}.</span>`
+    : `<span class="info-txt">${data.name} finds no curses to remove.</span>`;
+
+  addLog(`<span class="info-txt">The healer is speaking...</span>`, 'event-neutral');
+  const prompt = buildHealerDialoguePrompt(data, removed, getPlayerContext());
+  const narration = await generateNarration(AI_CONTEXT, prompt);
+
+  const logDiv = document.getElementById('log');
+  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+
+  if (narration) addLog(narration, 'event-npc');
+  addLog(fallbackText, 'event-neutral');
+  if (removed.length) await refreshPhysicalDescription(`Town healer removed curses: ${removed.map(curse => curse.name).join(', ')}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
 function movePlayer(dir) {
+  if (G.currentLocation === 'town') {
+    movePlayerInTown(dir);
+    return;
+  }
+  movePlayerInDungeon(dir);
+}
+
+function movePlayerInDungeon(dir) {
   const { dx, dy } = DIRECTIONS[dir];
-  const np = { x: G.player.pos.x + dx, y: G.player.pos.y + dy };
+  const pos = getCurrentPos();
+  const grid = getCurrentGrid();
+  const np = { x: pos.x + dx, y: pos.y + dy };
 
   if (np.x < 0 || np.x >= GRID_WIDTH || np.y < 0 || np.y >= GRID_HEIGHT) {
     addLog(`There is nothing but solid stone in that direction.`, 'event-neutral');
@@ -1100,16 +1253,16 @@ function movePlayer(dir) {
     return;
   }
 
-  if (G.grid.cells[np.y][np.x].type === 'wall') {
+  if (grid.cells[np.y][np.x].type === 'wall') {
     addLog(`A wall of cold stone blocks your path.`, 'event-neutral');
     renderUI();
     return;
   }
 
-  G.player.pos = np;
+  setCurrentPos(np);
   G.turns++;
 
-  const cell = G.grid.cells[np.y][np.x];
+  const cell = grid.cells[np.y][np.x];
 
   if (cell.type === 'exit') {
     cell.visited = true;
@@ -1120,14 +1273,22 @@ function movePlayer(dir) {
     return;
   }
 
-  if (cell.visited && !cell.fled) {
+  if (cell.type === 'start') {
+    cell.visited = true;
     checkGameOver().then(isGameOver => {
       if (!isGameOver) renderUI();
     });
     return;
   }
 
-  const canFlee = !cell.fled && !G.fleeCooldown;
+  if (cell.encounterState === 'cleared') {
+    checkGameOver().then(isGameOver => {
+      if (!isGameOver) renderUI();
+    });
+    return;
+  }
+
+  const canFlee = !cell.fled && !G.fleeCooldown && cell.encounterState !== 'failed-respawnable';
   cell.visited = true;
 
   if (cell.type === 'enemy') startEnemy(cell.data, canFlee);
@@ -1135,6 +1296,51 @@ function movePlayer(dir) {
   else if (cell.type === 'npc') startNPC(cell.data, canFlee);
   else if (cell.type === 'item') startItem(cell.data);
   else renderUI();
+}
+
+function movePlayerInTown(dir) {
+  const { dx, dy } = DIRECTIONS[dir];
+  const pos = getCurrentPos();
+  const grid = getCurrentGrid();
+  const np = { x: pos.x + dx, y: pos.y + dy };
+
+  if (np.x < 0 || np.x >= TOWN_WIDTH || np.y < 0 || np.y >= TOWN_HEIGHT) {
+    addLog(`The town boundary stops you from wandering farther.`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  setCurrentPos(np);
+  G.turns++;
+  const cell = grid.cells[np.y][np.x];
+  if (cell.type === 'town-npc') {
+    addLog(`You approach <span class="highlight">${cell.data.name}</span>.`, 'event-neutral');
+  }
+  renderUI();
+}
+
+function enterTown() {
+  if (G.currentLocation !== 'dungeon') return;
+  G.currentLocation = 'town';
+  G.phase = 'playing';
+  G.pendingResolveFn = null;
+  G.canFlee = false;
+  const town = G.locations.town;
+  town.pos = { x: town.grid.start.x, y: town.grid.start.y };
+  addLog(`<span class="info-txt">You leave the dungeon entrance and return to town.</span>`, 'event-neutral');
+  renderUI();
+}
+
+function enterDungeon() {
+  if (G.currentLocation !== 'town') return;
+  G.currentLocation = 'dungeon';
+  G.phase = 'playing';
+  G.pendingResolveFn = null;
+  G.canFlee = false;
+  const dungeon = G.locations.dungeon;
+  dungeon.pos = { x: dungeon.grid.start.x, y: dungeon.grid.start.y };
+  addLog(`<span class="info-txt">You descend through the dungeon entrance.</span>`, 'event-neutral');
+  renderUI();
 }
 
 function getEquippedItemCount() {
@@ -1180,9 +1386,7 @@ async function useCurseClearItem(index) {
   }
 
   const removed = curses.splice(curseIndex, 1)[0];
-  ensureRuntimeCursePools();
-  const bucket = AVAILABLE_CURSE_POOLS[removed.attribute] && AVAILABLE_CURSE_POOLS[removed.attribute][String(removed.magnitude)];
-  if (bucket) bucket.push(removed.name);
+  returnCurseToPool(removed);
   G.player.inventory.splice(index, 1);
   addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');
   await refreshPhysicalDescription(`Removed curse ${removed.name} with ${item.name}.`);
@@ -1275,8 +1479,20 @@ function renderInputPanel() {
 
   if (G.phase === 'playing') {
     title.textContent = 'Choose Direction';
+    const cell = getCurrentCell();
+    const actionButtons = [];
+    if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
+      actionButtons.push(`<button class="btn btn-continue" onclick="enterTown()">Go to Town</button>`);
+    }
+    if (G.currentLocation === 'town' && cell && cell.type === 'town-gate') {
+      actionButtons.push(`<button class="btn btn-continue" onclick="enterDungeon()">Enter Dungeon</button>`);
+    }
+    if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
+      actionButtons.push(`<button class="btn btn-continue" onclick="startTownNpc(getCurrentCell().data)">Talk</button>`);
+    }
     buttons.innerHTML = Object.keys(DIRECTIONS).map(dir =>
       `<button class="btn btn-dir" onclick="movePlayer('${dir}')">${dir}</button>`).join('');
+    if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }
 
@@ -1339,20 +1555,25 @@ function renderInputPanel() {
 
 function renderMinimap() {
   const grid = document.getElementById('minimap-grid');
-  const W = GRID_WIDTH;
-  const H = GRID_HEIGHT;
+  const location = G.currentLocation;
+  const locationState = getLocationState();
+  const W = location === 'town' ? TOWN_WIDTH : GRID_WIDTH;
+  const H = location === 'town' ? TOWN_HEIGHT : GRID_HEIGHT;
   grid.style.gridTemplateColumns = `repeat(${W}, 14px)`;
   grid.style.gridTemplateRows = `repeat(${H}, 14px)`;
   let html = '';
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const cell = G.grid.cells[y][x];
-      const isPlayer = G.player.pos.x === x && G.player.pos.y === y;
+      const cell = locationState.grid.cells[y][x];
+      const isPlayer = locationState.pos.x === x && locationState.pos.y === y;
       let cls = 'minimap-cell', content = '';
-      if (cell.visited) {
+      const visible = location === 'town' || cell.visited || cell.type === 'start';
+      if (visible) {
         cls += ' visited';
         if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
-        if (cell.fled) { cls += ' fled'; content = '!'; }
+        if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
+        if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }
+        if (cell.type === 'town-npc') { content = cell.data.mapIcon || 'N'; }
       }
       if (isPlayer) { cls += ' player'; content = '◉'; }
       html += `<div class="${cls}">${content}</div>`;

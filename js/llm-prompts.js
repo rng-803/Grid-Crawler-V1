@@ -113,6 +113,37 @@ Curse removed: ${curseText}
 Write a short curse-removal dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the removed curse if any, and not invent unrelated events.`;
 }
 
+function buildUpgraderDialoguePrompt(data, item, previousLevel, playerContext) {
+  return `The player visited a town item upgrader: ${data.name}.
+${buildTownNpcDetailText(data)}
+Player state: ${playerContext}
+Service: The upgrader improves one status item, not curse-clear items.
+Service cost paid: ${data.serviceCost || 0} coins
+Item upgraded: ${item.name}
+Previous item level: ${previousLevel}
+New item level: ${item.level}
+New item effect: ${itemDescriptionForPrompt(item)}
+Write a short upgrade dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the upgraded item, and not invent unrelated events.`;
+}
+
+function buildMerchantDialoguePrompt(data, item, price, playerContext) {
+  return `The player visited a town merchant: ${data.name}.
+${buildTownNpcDetailText(data)}
+Player state: ${playerContext}
+Service: The merchant buys unwanted items from the player.
+Item sold: ${item.name}
+Sale price: ${price} coins
+Write a short merchant dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the sold item, and not invent unrelated events.`;
+}
+
+function itemDescriptionForPrompt(item) {
+  if (!item || item.type === 'curseClear') return 'removes one curse';
+  const effects = Array.isArray(item.effects) && item.effects.length
+    ? item.effects.map(effect => `+${effect.magnitude} ${promptAttrDisplay(effect.attribute)}`).join(', ')
+    : `+${item.magnitude} ${promptAttrDisplay(item.attribute)}`;
+  return `Lvl ${item.level || 1}: ${effects}`;
+}
+
 function buildPhysicalDescriptionPrompt(data) {
   const equippedItems = data.equippedItems.length
     ? data.equippedItems.map(item => {

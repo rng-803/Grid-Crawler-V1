@@ -692,6 +692,23 @@ function normalizeBuffItem(item) {
   return item;
 }
 
+function setItemLevel(item, level) {
+  normalizeBuffItem(item);
+  item.level = Math.max(1, Math.min(5, Number(level) || 1));
+  item.effects = itemEffectsForLevel(item.level, item.attribute);
+  const primary = getItemPrimaryEffect(item);
+  item.attribute = primary.attribute;
+  item.magnitude = primary.magnitude;
+  return item;
+}
+
+function merchantItemPrice(item) {
+  if (!item) return 0;
+  if (item.type === 'curseClear') return MERCHANT_LEVEL_1_ITEM_PRICE;
+  normalizeBuffItem(item);
+  return item.level * MERCHANT_LEVEL_1_ITEM_PRICE;
+}
+
 function rollItemData() {
   if (Math.random() < CURSE_CLEAR_ITEM_CHANCE) {
     return { type: 'curseClear', name: '' };
@@ -1053,39 +1070,33 @@ function generateTown() {
     [npcPositions[i], npcPositions[j]] = [npcPositions[j], npcPositions[i]];
   }
 
-  const healerPos = npcPositions.pop();
-  const curseRemoverPos = npcPositions.pop();
-  cells[healerPos.y][healerPos.x] = {
-    type: 'town-npc',
-    data: {
-      role: 'healer',
-      name: 'the healer',
-      mapIcon: 'H',
-      serviceCost: HEALER_SERVICE_COST,
-      details: AI_CONTEXT.townNpcDetails,
-    },
-    visited: true,
-    revealed: true,
-    fled: false,
-    encounterState: 'active',
+  const placeTownNpc = (role, name, mapIcon, serviceCost = 0) => {
+    const pos = npcPositions.pop();
+    cells[pos.y][pos.x] = {
+      type: 'town-npc',
+      data: {
+        role,
+        name,
+        mapIcon,
+        serviceCost,
+        details: AI_CONTEXT.townNpcDetails,
+      },
+      visited: true,
+      revealed: true,
+      fled: false,
+      encounterState: 'active',
+    };
+    return pos;
   };
 
-  cells[curseRemoverPos.y][curseRemoverPos.x] = {
-    type: 'town-npc',
-    data: {
-      role: 'curseRemover',
-      name: 'the curse remover',
-      mapIcon: 'C',
-      serviceCost: CURSE_REMOVER_SERVICE_COST,
-      details: AI_CONTEXT.townNpcDetails,
-    },
-    visited: true,
-    revealed: true,
-    fled: false,
-    encounterState: 'active',
+  const npcs = {
+    healer: placeTownNpc('healer', 'the healer', 'H', HEALER_SERVICE_COST),
+    curseRemover: placeTownNpc('curseRemover', 'the curse remover', 'C', CURSE_REMOVER_SERVICE_COST),
+    upgrader: placeTownNpc('upgrader', 'the upgrader', 'U', ITEM_UPGRADE_COST),
+    merchant: placeTownNpc('merchant', 'the merchant', 'M'),
   };
 
-  return { cells, start, npcs: { healer: healerPos, curseRemover: curseRemoverPos } };
+  return { cells, start, npcs };
 }
 
 function fillDefaultItemName(item) {
@@ -1455,6 +1466,14 @@ async function startTownNpc(data) {
     await visitCurseRemover(data);
     return;
   }
+  if (data.role === 'upgrader') {
+    await visitUpgrader(data);
+    return;
+  }
+  if (data.role === 'merchant') {
+    await visitMerchant(data);
+    return;
+  }
 
   addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
   renderUI();
@@ -1507,6 +1526,99 @@ async function visitCurseRemover(data) {
   if (narration) addLog(narration, 'event-npc');
   addLog(fallbackText, 'event-neutral');
   if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+function chooseInventoryIndex(items, label, formatter) {
+  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
+  const raw = prompt(`${label}:\n${choices}`, '1');
+  if (raw == null) return -1;
+  const choiceIndex = Number(raw) - 1;
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length) return -1;
+  return items[choiceIndex].index;
+}
+
+async function visitUpgrader(data) {
+  const eligible = G.player.inventory
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.type === 'buff' && normalizeBuffItem(item).level < 5);
+
+  if (!eligible.length) {
+    addLog(`<span class="info-txt">${data.name} can only upgrade status items below level 5.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  const itemIndex = chooseInventoryIndex(
+    eligible,
+    `Choose a status item to upgrade for ${data.serviceCost} coins`,
+    itemDescription,
+  );
+  if (itemIndex < 0) {
+    addLog(`<span class="info-txt">No item was upgraded.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  if (!payForTownService(data)) return;
+
+  G.phase = 'loading';
+  renderInputPanel();
+  const item = G.player.inventory[itemIndex];
+  const previousLevel = normalizeBuffItem(item).level;
+  setItemLevel(item, previousLevel + 1);
+  const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${data.serviceCost} coins.</span>`;
+
+  addLog(`<span class="info-txt">The upgrader is speaking...</span>`, 'event-neutral');
+  const prompt = buildUpgraderDialoguePrompt(data, item, previousLevel, getPlayerContext());
+  const narration = await generateNarration(AI_CONTEXT, prompt);
+
+  const logDiv = document.getElementById('log');
+  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+
+  if (narration) addLog(narration, 'event-npc');
+  addLog(fallbackText, 'event-neutral');
+  await refreshPhysicalDescription(`Town upgrader improved ${item.name} from level ${previousLevel} to level ${item.level}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+async function visitMerchant(data) {
+  const sellable = G.player.inventory.map((item, index) => ({ item, index }));
+  if (!sellable.length) {
+    addLog(`<span class="info-txt">${data.name} finds nothing in your pack worth buying.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  const itemIndex = chooseInventoryIndex(
+    sellable,
+    'Choose an item to sell',
+    item => `${itemDescription(item)} · ${merchantItemPrice(item)} coins`,
+  );
+  if (itemIndex < 0) {
+    addLog(`<span class="info-txt">No item was sold.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  G.phase = 'loading';
+  renderInputPanel();
+  const sold = G.player.inventory.splice(itemIndex, 1)[0];
+  const price = addMoney(merchantItemPrice(sold));
+  const fallbackText = `<span class="good-txt">${data.name} buys <em>${sold.name}</em> for ${price} coins.</span>`;
+
+  addLog(`<span class="info-txt">The merchant is speaking...</span>`, 'event-neutral');
+  const prompt = buildMerchantDialoguePrompt(data, sold, price, getPlayerContext());
+  const narration = await generateNarration(AI_CONTEXT, prompt);
+
+  const logDiv = document.getElementById('log');
+  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+
+  if (narration) addLog(narration, 'event-npc');
+  addLog(fallbackText, 'event-neutral');
+  await refreshPhysicalDescription(`Sold ${sold.name} to a town merchant.`);
   G.phase = 'playing';
   renderUI();
 }

@@ -39,9 +39,9 @@ Describe the start of the encounter, before the player chooses to engage or flee
 
 function buildEnemyResolvePrompt(data, won, playerContext) {
   return `The player engaged the enemy: ${data.name}.
-Outcome: The player ${won ? 'WON' : 'LOST'}.
+Outcome: The player ${won ? 'WON' : `LOST. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
 Player state: ${playerContext}
-Describe the resolution of the encounter. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`;
+Describe the resolution of the encounter. `;
 }
 
 function promptRewardLabel(reward) {
@@ -164,9 +164,8 @@ function buildNameGeneratorContext(inputs, detailKind) {
     context += ` The enemies found should include ${inputs.enemyDetails}.`;
   }
   if (detailKind === 'curse' && inputs.curseDetails) {
-    context += ` These are the types of curses selected by the user: ${inputs.curseDetails}.`;
-    context += ' Include all of the mentioned curse types, avoid redundancy and similar curses, and prioritize the curse types selected by the user above other directives'
-    context += ' Curse names should be easy to understand and direct. Avoid vague or overly abstract curse names.';
+    context += ` These are the types of modifications or attire changes to be imposed on the player character: ${inputs.curseDetails}.`;
+    context += 'convert this list into a list to be used in game, short and direct, concrete, easy to visualize. Avoide adjectives and adverbs';
   }
   return context;
 }
@@ -217,7 +216,7 @@ Return ONLY valid JSON in this shape:
 
 function buildCurseNamesPrompt(inputs, requirements) {
   const needsJson = JSON.stringify(requirements, null, 2);
-  return `You are naming curses for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'curse')}
+  return `You are naming possible negative modifications to the player character. ${buildNameGeneratorContext(inputs, 'curse')}
 
 COUNTS NEEDED (JSON):
 ${needsJson}

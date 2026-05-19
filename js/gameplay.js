@@ -1244,7 +1244,6 @@ async function resolveEnemy(data) {
   renderInputPanel();
   const eff = getEff();
   const won = eff.power >= data.power;
-
   let mechText = '';
   let s = null;
   if (won) {

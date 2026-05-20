@@ -1939,7 +1939,6 @@ function renderStatusPanel() {
       </div>
     </div>
 
-    <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     <div class="attribute-strip">
       <div class="attribute-pill" title="Power">
         <img class="attribute-icon" src="assets/power.png" alt="Power">
@@ -1969,15 +1968,18 @@ function renderStatusPanel() {
 function renderInputPanel() {
   const title = document.getElementById('input-title');
   const buttons = document.getElementById('input-buttons');
+  const setTitle = (text) => {
+    if (title) title.textContent = text;
+  };
 
   if (G.phase === 'loading') {
-    title.textContent = 'Please wait...';
+    setTitle('Please wait...');
     buttons.innerHTML = '';
     return;
   }
 
   if (G.phase === 'playing') {
-    title.textContent = 'Choose Direction';
+    setTitle('');
     const cell = getCurrentCell();
     const actionButtons = [];
     if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
@@ -2004,7 +2006,7 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'encounter-pause') {
-    title.textContent = 'An encounter awaits…';
+    setTitle('An encounter awaits…');
     let resolveText = 'Resolve';
     let fleeText = 'Flee';
     let resolveIcon = '⚔';
@@ -2034,7 +2036,7 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'levelup') {
-    title.textContent = '⬆ Level Up — Choose an Attribute to Improve';
+    setTitle('⬆ Level Up — Choose an Attribute to Improve');
     buttons.innerHTML = ['power', 'perception', 'persuasion'].map(attr => {
       const cur = G.player.base[attr];
       const next = Math.min(MAX_ATTR, cur + 1);
@@ -2047,13 +2049,13 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'gameover-win') {
-    title.textContent = '✦ Victory';
+    setTitle('✦ Victory');
     buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Play Again</button>`;
     return;
   }
 
   if (G.phase === 'gameover-loss') {
-    title.textContent = '✦ Defeated';
+    setTitle('✦ Defeated');
     buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Try Again</button>`;
     return;
   }

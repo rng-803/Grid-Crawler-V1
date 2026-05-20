@@ -1931,11 +1931,13 @@ function renderStatusPanel() {
   }).join('');
 
   document.getElementById('status-content').innerHTML = `
-    <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
-    <span class="stat-label">HP</span>
-      <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / ${PLAYER_MAX_HP}</span></div>
-    <div class="heart-row" aria-label="HP ${p.hp} of ${PLAYER_MAX_HP}">${heartsHtml}</div>
-    <div class="stat-row"><span class="stat-label">Coins</span><span class="stat-val">${p.money}</span></div>
+    <div class="vitals-row">
+      <div class="heart-row" aria-label="HP ${p.hp} of ${PLAYER_MAX_HP}">${heartsHtml}</div>
+      <div class="coins-display" aria-label="Coins ${p.money}">
+        <img class="coins-icon" src="assets/coins.png" alt="Coins">
+        <span>${p.money}</span>
+      </div>
+    </div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
     <div class="attribute-strip">

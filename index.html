@@ -176,12 +176,21 @@
       transition: width 0.4s ease;
     }
 
+    .vitals-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 5px 0 10px;
+    }
+
     .heart-row {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
       align-items: center;
-      margin: 5px 0 10px;
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .heart-icon {
@@ -194,6 +203,24 @@
     .heart-icon.empty {
       opacity: 0.22;
       filter: grayscale(1);
+    }
+
+    .coins-display {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--gold);
+      font-weight: bold;
+      line-height: 1;
+      white-space: nowrap;
+      margin-left: auto;
+    }
+
+    .coins-icon {
+      width: 18px;
+      height: 18px;
+      image-rendering: pixelated;
+      flex: 0 0 auto;
     }
 
     .attribute-strip {
@@ -980,7 +1007,6 @@
 
   <div class="panel" id="game-container" style="display:none;">
     <div class="game-section" id="status-panel">
-      <div class="panel-title"></div>
       <div id="status-content"></div>
       <button type="button" class="btn btn-dir" id="btn-character-description"
         style="width: 100%; margin-top: 12px;" onclick="toggleCharacterDescription()">Character Description</button>

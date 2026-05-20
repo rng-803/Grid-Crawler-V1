@@ -1918,25 +1918,40 @@ function renderStatusPanel() {
         </div>`).join('')
     : '<span class="empty-note">Empty</span>';
 
-  const attrLine = (label, baseVal, effVal) => {
+  const attrValue = (baseVal, effVal) => {
     const diff = effVal - baseVal;
-    const mod = diff === 0 ? ''
+    return diff === 0 ? `${effVal}`
       : diff > 0 ? ` <span class="good-txt">(+${diff})</span>`
         : ` <span class="danger-txt">(${diff})</span>`;
-    return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-val">${effVal}${mod}</span></div>`;
   };
+
+  const heartsHtml = Array.from({ length: PLAYER_MAX_HP }, (_, index) => {
+    const emptyClass = index < p.hp ? '' : ' empty';
+    return `<img class="heart-icon${emptyClass}" src="assets/Health.png" alt="${index < p.hp ? 'HP' : 'Missing HP'}">`;
+  }).join('');
 
   document.getElementById('status-content').innerHTML = `
     <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
     <span class="stat-label">HP</span>
       <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / ${PLAYER_MAX_HP}</span></div>
-    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / PLAYER_MAX_HP) * 100}%"></div></div>
+    <div class="heart-row" aria-label="HP ${p.hp} of ${PLAYER_MAX_HP}">${heartsHtml}</div>
     <div class="stat-row"><span class="stat-label">Coins</span><span class="stat-val">${p.money}</span></div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
-    ${attrLine('Power', p.base.power, eff.power)}
-    ${attrLine('Agility', p.base.perception, eff.perception)}
-    ${attrLine('Persuasion', p.base.persuasion, eff.persuasion)}
+    <div class="attribute-strip">
+      <div class="attribute-pill" title="Power">
+        <img class="attribute-icon" src="assets/power.png" alt="Power">
+        <span class="attribute-value">${attrValue(p.base.power, eff.power)}</span>
+      </div>
+      <div class="attribute-pill" title="Agility">
+        <img class="attribute-icon" src="assets/agility.png" alt="Agility">
+        <span class="attribute-value">${attrValue(p.base.perception, eff.perception)}</span>
+      </div>
+      <div class="attribute-pill" title="Persuasion">
+        <img class="attribute-icon" src="assets/persuasion.png" alt="Persuasion">
+        <span class="attribute-value">${attrValue(p.base.persuasion, eff.persuasion)}</span>
+      </div>
+    </div>
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Equipped Items (${equippedItems.length} / ${MAX_EQUIPPED_ITEMS})</div>
     <div style="padding:4px 0;">${activeHtml}</div>

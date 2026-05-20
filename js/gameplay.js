@@ -1820,9 +1820,9 @@ function updateChronicleVisibility() {
     if (CHRONICLE_SHOW_ALL) {
       hint.textContent = `Showing all chronicle entries (${entries.length})`;
     } else if (CHRONICLE_INDEX < entries.length - 1 || pageText) {
-      hint.textContent = `Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`;
+      hint.textContent = `Tap chronicle or press Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`;
     } else {
-      hint.textContent = `Space: chronicle current (${CHRONICLE_INDEX + 1}/${entries.length})`;
+      hint.textContent = `Tap chronicle or press Space: current (${CHRONICLE_INDEX + 1}/${entries.length})`;
     }
   }
   const button = document.getElementById('btn-chronicle-history');
@@ -1960,7 +1960,7 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'playing') {
-    title.textContent = 'Keyboard Movement';
+    title.textContent = 'Choose Direction';
     const cell = getCurrentCell();
     const actionButtons = [];
     if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
@@ -1973,7 +1973,15 @@ function renderInputPanel() {
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
       actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
     }
-    buttons.innerHTML = '<div class="runtime-api-note">Move with WASD or arrow keys. Press Space to advance the chronicle.</div>';
+    buttons.innerHTML = `
+      <div class="movement-pad" aria-label="Movement controls">
+        <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">↑ <span>North</span></button>
+        <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">← <span>West</span></button>
+        <div class="movement-center">Move</div>
+        <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east"><span>East</span> →</button>
+        <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">↓ <span>South</span></button>
+      </div>
+      <div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
     if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }
@@ -2040,8 +2048,8 @@ function renderMinimap() {
   const locationState = getLocationState();
   const W = location === 'town' ? TOWN_WIDTH : GRID_WIDTH;
   const H = location === 'town' ? TOWN_HEIGHT : GRID_HEIGHT;
-  grid.style.gridTemplateColumns = `repeat(${W}, 14px)`;
-  grid.style.gridTemplateRows = `repeat(${H}, 14px)`;
+  grid.style.gridTemplateColumns = `repeat(${W}, var(--map-cell-size))`;
+  grid.style.gridTemplateRows = `repeat(${H}, var(--map-cell-size))`;
   let html = '';
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -2217,9 +2225,22 @@ function startGame(className) {
   if (logPanel) logPanel.classList.remove('show-all');
   document.body.classList.add('game-active');
   document.getElementById('setup-screen').style.display = 'none';
-  document.getElementById('game-container').style.display = 'grid';
+  document.getElementById('game-container').style.display = '';
   addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
   renderUI();
+}
+
+const chroniclePanel = document.getElementById('log-panel');
+if (chroniclePanel) {
+  chroniclePanel.addEventListener('click', (event) => {
+    if (event.target && event.target.closest && event.target.closest('button')) return;
+    advanceChronicle();
+  });
+  chroniclePanel.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    advanceChronicle();
+  });
 }
 
 document.addEventListener('keydown', (e) => {

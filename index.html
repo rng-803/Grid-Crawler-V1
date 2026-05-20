@@ -742,30 +742,6 @@
       font-weight: bold;
     }
 
-    @media (min-width: 760px) {
-      #game-container {
-        display: grid;
-        grid-template-columns: minmax(260px, 0.9fr) minmax(360px, 1.2fr);
-        grid-template-rows: minmax(168px, 0.55fr) minmax(210px, 1fr);
-      }
-
-      #status-panel {
-        grid-column: 1;
-        grid-row: 1 / 3;
-      }
-
-      #log-panel {
-        grid-column: 2;
-        grid-row: 1;
-        height: auto;
-      }
-
-      #input-panel {
-        grid-column: 2;
-        grid-row: 2;
-      }
-    }
-
     @media (max-width: 759px) {
       body.game-active {
         padding: 6px;

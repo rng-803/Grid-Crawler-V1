@@ -382,20 +382,25 @@
       font-family: 'Press Start 2P', 'Courier New', monospace;
       cursor: pointer;
       touch-action: manipulation;
+      display: flex; 
+      flex-direction: column; 
     }
 
     #log {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      height: calc(100% - 54px);
-      overflow: hidden;
+      flex 1 1 auto; 
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+      margin-top: auto;
     }
 
     #log-panel.show-all #log {
-      height: min(420px, 54vh);
-      overflow-y: auto;
-      padding-right: 4px;
+      height: min(600px, 54vh);
+     
+     
     }
 
     .log-entry {

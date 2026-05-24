@@ -916,7 +916,7 @@ async function checkGameOver() {
 function logGameOverSummaryOnce() {
   if (!G || G.gameOverSummaryLogged) return;
   G.gameOverSummaryLogged = true;
-  addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss');
+  addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss', { focus: false });
 }
 
 function levelUp() {
@@ -1582,6 +1582,7 @@ async function visitMerchant(data) {
 }
 
 function movePlayer(dir) {
+  if (G.phase !== 'playing') return;
   if (G.currentLocation === 'town') {
     movePlayerInTown(dir);
     return;
@@ -1617,7 +1618,7 @@ function movePlayerInDungeon(dir) {
     cell.visited = true;
     G.phase = 'gameover-win';
     addLog(`<span class="good-txt">✦ Daylight floods through a hidden door. You have escaped the dungeon!</span>`, 'event-win');
-    addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win');
+    addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win', { focus: false });
     renderUI();
     return;
   }
@@ -1775,9 +1776,12 @@ function paginateChronicleText(text, maxChars = 280) {
 }
 
 function setChroniclePlainText(el, text) {
+  el._chronicleFullText = String(text || '');
   el._chroniclePages = paginateChronicleText(text);
   el._chroniclePage = Math.min(el._chroniclePage || 0, el._chroniclePages.length - 1);
-  if (el.classList.contains('active')) {
+  if (CHRONICLE_SHOW_ALL) {
+    el.textContent = el._chronicleFullText;
+  } else if (el.classList.contains('active')) {
     el.textContent = el._chroniclePages[el._chroniclePage];
   }
 }
@@ -1807,8 +1811,12 @@ function updateChronicleVisibility() {
   entries.forEach((entry, index) => {
     const active = index === CHRONICLE_INDEX;
     entry.classList.toggle('active', active);
-    if (active && entry._chroniclePages) {
-      entry.textContent = entry._chroniclePages[entry._chroniclePage || 0];
+    if (entry._chroniclePages) {
+      if (CHRONICLE_SHOW_ALL) {
+        entry.textContent = entry._chronicleFullText || entry._chroniclePages.join(' ');
+      } else if (active) {
+        entry.textContent = entry._chroniclePages[entry._chroniclePage || 0];
+      }
     }
   });
   const hint = document.getElementById('chronicle-hint');
@@ -1968,15 +1976,14 @@ function renderStatusPanel() {
 function renderInputPanel() {
   const title = document.getElementById('input-title');
   const buttons = document.getElementById('input-buttons');
-  // Movement pad goes here instead
-const movementPad = document.getElementById('movement-pad');
-movementPad.innerHTML = `
-  <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">▲</button>
-  <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">◀</button>
-  <div class="movement-center"></div>
-  <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east">▶</button>
-  <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">▼</button>
-`;
+  const movementPad = document.getElementById('movement-pad');
+  const movementDisabled = G.phase !== 'playing';
+  movementPad.innerHTML = `
+    <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north" ${movementDisabled ? 'disabled' : ''}>▲</button>
+    <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west" ${movementDisabled ? 'disabled' : ''}>◀</button>
+    <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east" ${movementDisabled ? 'disabled' : ''}>▶</button>
+    <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south" ${movementDisabled ? 'disabled' : ''}>▼</button>
+  `;
 
 
   
@@ -2005,15 +2012,7 @@ movementPad.innerHTML = `
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
       actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
     }
-    buttons.innerHTML = `
-      <div class="movement-pad" aria-label="Movement controls">
-        <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">↑ <span>North</span></button>
-        <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">← <span>West</span></button>
-        <div class="movement-center">Move</div>
-        <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east"><span>East</span> →</button>
-        <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">↓ <span>South</span></button>
-      </div>
-      <div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
+    buttons.innerHTML = `<div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
     if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }

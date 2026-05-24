@@ -1582,6 +1582,7 @@ async function visitMerchant(data) {
 }
 
 function movePlayer(dir) {
+  if (G.phase !== 'playing') return;
   if (G.currentLocation === 'town') {
     movePlayerInTown(dir);
     return;
@@ -1968,15 +1969,14 @@ function renderStatusPanel() {
 function renderInputPanel() {
   const title = document.getElementById('input-title');
   const buttons = document.getElementById('input-buttons');
-  // Movement pad goes here instead
-const movementPad = document.getElementById('movement-pad');
-movementPad.innerHTML = `
-  <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">▲</button>
-  <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">◀</button>
-  <div class="movement-center"></div>
-  <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east">▶</button>
-  <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">▼</button>
-`;
+  const movementPad = document.getElementById('movement-pad');
+  const movementDisabled = G.phase !== 'playing';
+  movementPad.innerHTML = `
+    <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north" ${movementDisabled ? 'disabled' : ''}>▲</button>
+    <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west" ${movementDisabled ? 'disabled' : ''}>◀</button>
+    <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east" ${movementDisabled ? 'disabled' : ''}>▶</button>
+    <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south" ${movementDisabled ? 'disabled' : ''}>▼</button>
+  `;
 
 
   
@@ -2005,15 +2005,7 @@ movementPad.innerHTML = `
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
       actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
     }
-    buttons.innerHTML = `
-      <div class="movement-pad" aria-label="Movement controls">
-        <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">↑ <span>North</span></button>
-        <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">← <span>West</span></button>
-        <div class="movement-center">Move</div>
-        <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east"><span>East</span> →</button>
-        <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">↓ <span>South</span></button>
-      </div>
-      <div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
+    buttons.innerHTML = `<div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
     if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }

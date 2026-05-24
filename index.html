@@ -533,11 +533,11 @@
 /* Compact D-pad */
 .movement-pad {
   display: grid;
-  grid-template-columns: repeat(3, 36px);
-  grid-template-rows: repeat(3, 36px);
+  grid-template-columns: repeat(3, 40px);
+  grid-template-rows: repeat(3, 40px);
   grid-template-areas:
     ". north ."
-    "west center east"
+    "west . east"
     ". south .";
   gap: 4px;
   width: 128px; /* 3*40 + 2*4 gaps */
@@ -556,18 +556,12 @@
   justify-content: center;
 }
 
-.movement-center {
-  grid-area: center;
-  border: 1px solid rgba(58, 47, 30, 0.4);
-  background: rgba(14, 12, 9, 0.3);
-  border-radius: 2px;
-}
-
-/* On mobile, stack them if screen too narrow */
+/* Keep minimap and movement side-by-side on mobile */
 @media (max-width: 420px) {
   .bottom-hud {
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
   }
   .movement-pad {
     grid-template-columns: repeat(3, 48px);

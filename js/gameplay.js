@@ -1921,8 +1921,8 @@ function renderStatusPanel() {
   const attrValue = (baseVal, effVal) => {
     const diff = effVal - baseVal;
     return diff === 0 ? `${effVal}`
-      : diff > 0 ? ` <span class="good-txt">(+${diff})</span>`
-        : ` <span class="danger-txt">(${diff})</span>`;
+      : diff > 0 ? ` <span class="good-txt">${effVal}</span>`
+        : ` <span class="danger-txt">${effVal}</span>`;
   };
 
   const heartsHtml = Array.from({ length: PLAYER_MAX_HP }, (_, index) => {
@@ -1968,6 +1968,18 @@ function renderStatusPanel() {
 function renderInputPanel() {
   const title = document.getElementById('input-title');
   const buttons = document.getElementById('input-buttons');
+  // Movement pad goes here instead
+const movementPad = document.getElementById('movement-pad');
+movementPad.innerHTML = `
+  <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north">▲</button>
+  <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west">◀</button>
+  <div class="movement-center"></div>
+  <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east">▶</button>
+  <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south">▼</button>
+`;
+
+
+  
   const setTitle = (text) => {
     if (title) title.textContent = text;
   };
@@ -1983,9 +1995,10 @@ function renderInputPanel() {
     const cell = getCurrentCell();
     const actionButtons = [];
     if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
-      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterTown()">Go to Town</button>`);
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterTown()">Exit Dungeon</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-gate') {
+   
       actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterDungeon()">Enter Dungeon</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
@@ -2061,30 +2074,54 @@ function renderInputPanel() {
   }
 }
 
+
 function renderMinimap() {
   const grid = document.getElementById('minimap-grid');
   const location = G.currentLocation;
   const locationState = getLocationState();
-  const W = location === 'town' ? TOWN_WIDTH : GRID_WIDTH;
-  const H = location === 'town' ? TOWN_HEIGHT : GRID_HEIGHT;
-  grid.style.gridTemplateColumns = `repeat(${W}, var(--map-cell-size))`;
-  grid.style.gridTemplateRows = `repeat(${H}, var(--map-cell-size))`;
+
+  const MINIMAP_VIEW_RADIUS = 2;
+  const VIEW_SIZE = MINIMAP_VIEW_RADIUS * 2 + 1;
+
+  const W = location === 'town'? TOWN_WIDTH : GRID_WIDTH;
+  const H = location === 'town'? TOWN_HEIGHT : GRID_HEIGHT;
+  const px = locationState.pos.x;
+  const py = locationState.pos.y;
+
+  // CHANGED: grid is now fixed to VIEW_SIZE instead of full W/H
+  grid.style.gridTemplateColumns = `repeat(${VIEW_SIZE}, var(--map-cell-size))`;
+  grid.style.gridTemplateRows = `repeat(${VIEW_SIZE}, var(--map-cell-size))`;
+
   let html = '';
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const cell = locationState.grid.cells[y][x];
-      const isPlayer = locationState.pos.x === x && locationState.pos.y === y;
+
+  // CHANGED: loop only around player, not full grid
+  for (let dy = -MINIMAP_VIEW_RADIUS; dy <= MINIMAP_VIEW_RADIUS; dy++) {
+    for (let dx = -MINIMAP_VIEW_RADIUS; dx <= MINIMAP_VIEW_RADIUS; dx++) {
+      const x = px + dx;
+      const y = py + dy;
+
       let cls = 'minimap-cell', content = '';
-      const visible = location === 'town' || cell.visited || cell.type === 'start';
-      if (visible) {
-        cls += ' visited';
-        if (cell.type === 'wall') { cls += ' wall'; content = ''; }
-        if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
-        if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
-        if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }
-        if (cell.type === 'town-npc') { content = cell.data.mapIcon || 'N'; }
+
+      // CHANGED: handle out-of-bounds as walls
+      if (x < 0 || y < 0 || x >= W || y >= H) {
+        cls += ' wall';
+      } else {
+        const cell = locationState.grid.cells[y][x];
+        const isPlayer = dx === 0 && dy === 0; // center is always player
+        const visible = location === 'town' || cell.visited || cell.type === 'start';
+
+        if (visible) {
+          cls += ' visited';
+          if (cell.type === 'wall') { cls += ' wall'; content = ''; }
+          if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
+          if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
+          if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }
+          if (cell.type === 'town-npc') { content = cell.data.mapIcon || 'N'; }
+        }
+
+        if (isPlayer) { cls += ' player'; content = '◉'; }
       }
-      if (isPlayer) { cls += ' player'; content = '◉'; }
+
       html += `<div class="${cls}">${content}</div>`;
     }
   }

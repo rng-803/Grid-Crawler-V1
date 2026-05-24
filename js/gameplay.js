@@ -1974,8 +1974,9 @@ function renderInputPanel() {
   movementPad.innerHTML = `
     <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north" ${movementDisabled ? 'disabled' : ''}>▲</button>
     <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west" ${movementDisabled ? 'disabled' : ''}>◀</button>
-    <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east" ${movementDisabled ? 'disabled' : ''}>▶</button>
+    
     <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south" ${movementDisabled ? 'disabled' : ''}>▼</button>
+    <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east" ${movementDisabled ? 'disabled' : ''}>▶</button>
   `;
 
 

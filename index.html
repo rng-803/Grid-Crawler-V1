@@ -534,11 +534,10 @@
 .movement-pad {
   display: grid;
   grid-template-columns: repeat(3, 40px);
-  grid-template-rows: repeat(3, 40px);
+  grid-template-rows: repeat(2, 40px);
   grid-template-areas:
     ". north ."
-    "west . east"
-    ". south .";
+    "west south east";
   gap: 4px;
   width: 128px; /* 3*40 + 2*4 gaps */
   flex: 0 0 auto;
@@ -565,7 +564,7 @@
   }
   .movement-pad {
     grid-template-columns: repeat(3, 48px);
-    grid-template-rows: repeat(3, 48px);
+    grid-template-rows: repeat(2, 48px);
     width: 152px;
   }
   .movement-pad .btn-dir {
@@ -573,6 +572,10 @@
     height: 48px;
     font-size: 1.1rem;
   }
+  .btn-dir-north { grid-area: north; }
+  .btn-dir-west  { grid-area: west; }
+  .btn-dir-south { grid-area: south; }
+  .btn-dir-east  { grid-area: east; }
 }
 
    
@@ -1064,7 +1067,7 @@
     
   <div class="bottom-hud">
   <div id="minimap-container">
-    <div class="minimap-title">Cartographer's View</div>
+    
     <div id="minimap-grid" class="minimap-grid"></div>
   </div>
 

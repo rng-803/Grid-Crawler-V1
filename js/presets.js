@@ -60,7 +60,7 @@ function getCurrentThemeFields() {
     themeDetails: document.getElementById('game-theme-details').value.trim(),
     enemyDetails: document.getElementById('game-enemy-details').value.trim(),
     curseDetails: document.getElementById('game-curse-details').value.trim(),
-    itemDetails: document.getElementById('game-item-details').value.trim(),
+    townNpcDetails: document.getElementById('game-town-npc-details').value.trim(),
     characterDesc: document.getElementById('game-char-desc').value.trim(),
   };
 }
@@ -75,7 +75,7 @@ function applyThemeFields(o) {
   document.getElementById('game-curse-details').value = o.curseDetails != null
     ? o.curseDetails
     : (o.curseTypes != null ? o.curseTypes : '');
-  document.getElementById('game-item-details').value = o.itemDetails != null ? o.itemDetails : '';
+  document.getElementById('game-town-npc-details').value = o.townNpcDetails != null ? o.townNpcDetails : '';
   document.getElementById('game-char-desc').value = o.characterDesc != null ? o.characterDesc : '';
   if (typeof syncAdvancedSetupVisibility === 'function') syncAdvancedSetupVisibility();
 }
@@ -300,7 +300,7 @@ function wirePresetAutosave() {
     'game-theme-details',
     'game-enemy-details',
     'game-curse-details',
-    'game-item-details',
+    'game-town-npc-details',
     'game-char-desc',
   ];
   for (const id of ids) {

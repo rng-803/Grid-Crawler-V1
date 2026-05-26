@@ -12,8 +12,11 @@ let GENERATED_CURSE_POOLS = null;
 let AVAILABLE_CURSE_POOLS = null;
 let AI_CONTEXT = {
   theme: '',
-  characterDesc: ''
+  characterDesc: '',
+  townNpcDetails: ''
 };
+let CHRONICLE_INDEX = 0;
+let CHRONICLE_SHOW_ALL = false;
 
 function toggleAdvancedSetup(forceVisible) {
   const panel = document.getElementById('advanced-setup-fields');
@@ -31,7 +34,7 @@ function toggleAdvancedSetup(forceVisible) {
 function syncAdvancedSetupVisibility() {
   const inputs = getNamingPromptInputs();
   const hasAdvancedValues = Boolean(
-    inputs.themeDetails || inputs.enemyDetails || inputs.curseDetails || inputs.itemDetails
+    inputs.themeDetails || inputs.enemyDetails || inputs.curseDetails || inputs.townNpcDetails
   );
   toggleAdvancedSetup(hasAdvancedValues);
 }
@@ -80,7 +83,7 @@ function getNamingPromptInputs() {
     themeDetails: document.getElementById('game-theme-details').value.trim(),
     enemyDetails: document.getElementById('game-enemy-details').value.trim(),
     curseDetails: document.getElementById('game-curse-details').value.trim(),
-    itemDetails: document.getElementById('game-item-details').value.trim(),
+    townNpcDetails: document.getElementById('game-town-npc-details').value.trim(),
     charDesc: document.getElementById('game-char-desc').value.trim(),
   };
 }
@@ -96,7 +99,7 @@ function applyNamingPromptInputs(inputs) {
     themeDetails: 'game-theme-details',
     enemyDetails: 'game-enemy-details',
     curseDetails: 'game-curse-details',
-    itemDetails: 'game-item-details',
+    townNpcDetails: 'game-town-npc-details',
     charDesc: 'game-char-desc',
   };
 
@@ -128,8 +131,21 @@ function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
 
 async function fillMissingNamingInputs(inputs) {
   const missingFields = [];
-  if (!String(inputs.themeDetails || '').trim() && String(inputs.setting || '').trim()) {
+  const hasSetupContext = Boolean(String(inputs.setting || '').trim() || String(inputs.themeDetails || '').trim());
+  if (!String(inputs.setting || '').trim() && String(inputs.themeDetails || '').trim()) {
+    missingFields.push('setting');
+  }
+  if (!String(inputs.themeDetails || '').trim() && hasSetupContext) {
     missingFields.push('themeDetails');
+  }
+  if (!String(inputs.enemyDetails || '').trim() && hasSetupContext) {
+    missingFields.push('enemyDetails');
+  }
+  if (!String(inputs.curseDetails || '').trim() && hasSetupContext) {
+    missingFields.push('curseDetails');
+  }
+  if (!String(inputs.townNpcDetails || '').trim() && hasSetupContext) {
+    missingFields.push('townNpcDetails');
   }
 
   if (!missingFields.length) return inputs;
@@ -175,17 +191,20 @@ function togglePromptDebug() {
 
 function initState(className) {
   const base = CLASSES[className];
-  let grid;
+  let dungeonGrid;
+  llmChronicle: ''
   if (PENDING_NAMED_GRID) {
-    grid = cloneGridForPlay(PENDING_NAMED_GRID);
+    dungeonGrid = cloneGridForPlay(PENDING_NAMED_GRID);
     PENDING_NAMED_GRID = null;
   } else {
-    grid = generateGrid();
-    fillDefaultNames(grid);
+    dungeonGrid = generateGrid();
+    fillDefaultNames(dungeonGrid);
   }
+  const townGrid = generateTown();
   G = {
     player: {
-      hp: 5,
+      hp: PLAYER_MAX_HP,
+      money: PLAYER_STARTING_MONEY,
       level: 1,
       class: className,
       base: { power: base.power, perception: base.perception, persuasion: base.persuasion },
@@ -193,11 +212,21 @@ function initState(className) {
       inventory: [],
       physicalDescription: AI_CONTEXT.characterDesc || `A ${className} adventurer.`,
       physicalDescriptionLoading: false,
-      pos: { x: grid.start.x, y: grid.start.y },
     },
-    grid,
+    currentLocation: 'dungeon',
+    locations: {
+      dungeon: {
+        grid: dungeonGrid,
+        pos: { x: dungeonGrid.start.x, y: dungeonGrid.start.y },
+      },
+      town: {
+        grid: townGrid,
+        pos: { x: townGrid.start.x, y: townGrid.start.y },
+      },
+    },
     phase: 'playing',
     turns: 0,
+    gameOverSummaryLogged: false,
     pendingResolveFn: null,
     canFlee: false,
     encounterType: null,
@@ -207,10 +236,69 @@ function initState(className) {
 
 function rollD(n) { return Math.floor(Math.random() * n) + 1; }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rollRange(range) {
+  return range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+}
+
+function addMoney(amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  G.player.money += n;
+  return n;
+}
+
+function spendMoney(amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  if (G.player.money < n) return false;
+  G.player.money -= n;
+  return true;
+}
 
 function attrLabel(attr) {
   if (attr === 'perception') return 'Agility';
   return attr.charAt(0).toUpperCase() + attr.slice(1);
+}
+
+function getLocationState(location = G.currentLocation) {
+  return G.locations[location];
+}
+
+function getCurrentGrid() {
+  return getLocationState().grid;
+}
+
+function getCurrentPos() {
+  return getLocationState().pos;
+}
+
+function setCurrentPos(pos) {
+  getLocationState().pos = { x: pos.x, y: pos.y };
+}
+
+function getCurrentCell() {
+  const pos = getCurrentPos();
+  return getCurrentGrid().cells[pos.y][pos.x];
+}
+
+function markCurrentDungeonEncounter(outcome) {
+  if (G.currentLocation !== 'dungeon') return;
+  const cell = getCurrentCell();
+  if (!cell || !['enemy', 'treasure', 'npc', 'item'].includes(cell.type)) return;
+  cell.encounterState = outcome === 'cleared' ? 'cleared' : 'failed-empty';
+  cell.fled = false;
+}
+
+function respawnFailedDungeonEncounters() {
+  const dungeon = G && G.locations && G.locations.dungeon;
+  if (!dungeon) return;
+  for (const row of dungeon.grid.cells) {
+    for (const cell of row) {
+      if (cell.encounterState === 'failed-empty') {
+        cell.encounterState = 'active';
+        cell.visited = false;
+        cell.fled = false;
+      }
+    }
+  }
 }
 
 function promptAttrKey(attr) {
@@ -275,9 +363,15 @@ function buildNamingRequirements(grid) {
       requirements.items.curseClear += 1;
       return;
     }
-    const attr = promptAttrKey(item.attribute || 'power');
-    const strength = (Number(item.magnitude) || 1) <= 2 ? 'Weak' : 'Strong';
+    normalizeBuffItem(item);
+    const primary = getItemPrimaryEffect(item);
+    const attr = promptAttrKey(primary.attribute || 'power');
+    const strength = item.level <= 2 ? 'Weak' : 'Strong';
     requirements.items[attr][strength] += 1;
+  };
+  const addRewardNeed = (reward) => {
+    if (!reward || reward.type !== 'item') return;
+    addItemNeed(reward.item);
   };
 
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
@@ -287,10 +381,10 @@ function buildNamingRequirements(grid) {
     if (t === 'enemy') {
       requirements.enemies[getDifficultyCategory(d.power)] += 1;
     } else if (t === 'treasure') {
-      addItemNeed(d.rewardItem);
+      addRewardNeed(d.reward || { type: 'item', item: d.rewardItem });
     } else if (t === 'npc') {
       requirements.npcs[getDifficultyCategory(d.check)] += 1;
-      addItemNeed(d.rewardItem);
+      addRewardNeed(d.reward || { type: 'item', item: d.rewardItem });
     } else if (t === 'item') {
       addItemNeed(d.pickup);
     }
@@ -446,13 +540,13 @@ function applyGeneratedItemName(item, workingPools) {
     return;
   }
 
+  normalizeBuffItem(item);
   item.type = 'buff';
-  if (!item.attribute) item.attribute = pick(['power', 'perception', 'persuasion']);
-  item.magnitude = Math.max(1, Math.min(5, Number(item.magnitude) || 1));
-  const strength = item.magnitude <= 2 ? 'Weak' : 'Strong';
+  const primary = getItemPrimaryEffect(item);
+  const strength = item.level <= 2 ? 'Weak' : 'Strong';
   item.name = drawPoolName(
-    workingPools.items[item.attribute][strength],
-    () => pick(ITEM_NAMES[item.attribute][strength]),
+    workingPools.items[primary.attribute][strength],
+    () => pick(ITEM_NAMES[primary.attribute][strength]),
   );
 }
 
@@ -461,23 +555,30 @@ function getEff() {
   const e = { power: p.base.power, perception: p.base.perception, persuasion: p.base.persuasion };
   for (const s of p.statuses) e[s.attribute] += s.magnitude;
   for (const item of p.inventory) {
-    if (item.type === 'buff' && item.equipped) e[item.attribute] += item.magnitude;
+    if (item.type === 'buff' && item.equipped) {
+      for (const effect of getItemEffects(item)) {
+        e[effect.attribute] += effect.magnitude;
+      }
+    }
   }
   return e;
 }
 
 function getPlayerContext() {
   const p = G.player;
+  const chronicleContext = (G.llmChronicle || '').slice(-30000);
   let ctx = '';
   if (AI_CONTEXT.characterDesc) {
     ctx += `Character: ${AI_CONTEXT.characterDesc}. `;
   }
+ // ctx += `HP: ${p.hp}/${PLAYER_MAX_HP}. Coins: ${p.money}. `;
   const equippedItems = p.inventory.filter(item => item.type === 'buff' && item.equipped);
   if (equippedItems.length > 0) {
-    ctx += `Equipped Items: ${equippedItems.map(e => e.name).join(', ')}. `;
+    ctx += `Equipped Items: ${equippedItems.map(e => `${e.name} (${itemDescription(e)})`).join(', ')}. `;
   }
   if (p.statuses.length > 0) {
     ctx += `Curses: ${p.statuses.map(s => s.name).join(', ')}.`;
+//  ctx += `the story so far: ${chronicleContext}`;
   }
   return ctx.trim();
 }
@@ -500,6 +601,28 @@ function renderCharacterDescription() {
     ? '<div class="runtime-api-note" style="margin-top:6px;">Updating appearance...</div>'
     : '';
   div.innerHTML = `${description}${loading}`;
+}
+
+function toggleStatusPanel(forceExpanded) {
+  const panel = document.getElementById('status-panel');
+  if (!panel) return;
+
+  const shouldExpand =
+    typeof forceExpanded === 'boolean'
+      ? forceExpanded
+      : !panel.classList.contains('expanded');
+
+  panel.classList.toggle('expanded', shouldExpand);
+  document.body.classList.toggle('status-expanded', shouldExpand);
+}
+
+function expandStatusPanelFromCollapsed(event) {
+  const panel = document.getElementById('status-panel');
+  if (!panel || panel.classList.contains('expanded')) return;
+
+  if (event.target.closest('button, input, select, textarea')) return;
+
+  toggleStatusPanel(true);
 }
 
 function toggleCharacterDescription() {
@@ -541,27 +664,107 @@ async function refreshPhysicalDescription(change) {
   renderCharacterDescription();
 }
 
+function itemEffectsForLevel(level, primaryAttribute) {
+  const primary = primaryAttribute || pick(['power', 'perception', 'persuasion']);
+  const attrs = ['power', 'perception', 'persuasion'];
+  const secondary = pick(attrs.filter(attr => attr !== primary));
+  if (level === 1) return [{ attribute: primary, magnitude: 1 }];
+  if (level === 2) return [{ attribute: primary, magnitude: 2 }];
+  if (level === 3) return [
+    { attribute: primary, magnitude: 2 },
+    { attribute: secondary, magnitude: 1 },
+  ];
+  if (level === 4) return [
+    { attribute: primary, magnitude: 2 },
+    { attribute: secondary, magnitude: 2 },
+  ];
+  return [{ attribute: primary, magnitude: 5 }];
+}
+
+function getItemEffects(item) {
+  if (!item || item.type !== 'buff') return [];
+  if (Array.isArray(item.effects) && item.effects.length) {
+    return item.effects
+      .map(effect => ({
+        attribute: effect.attribute || 'power',
+        magnitude: Math.max(1, Math.min(5, Number(effect.magnitude) || 1)),
+      }))
+      .filter(effect => ['power', 'perception', 'persuasion'].includes(effect.attribute));
+  }
+  if (item.attribute) {
+    return [{
+      attribute: item.attribute,
+      magnitude: Math.max(1, Math.min(5, Number(item.magnitude) || 1)),
+    }];
+  }
+  return itemEffectsForLevel(Number(item.level) || 1, pick(['power', 'perception', 'persuasion']));
+}
+
+function getItemPrimaryEffect(item) {
+  return getItemEffects(item)[0] || { attribute: 'power', magnitude: 1 };
+}
+
+function normalizeBuffItem(item) {
+  if (!item || item.type === 'curseClear') return item;
+  item.type = 'buff';
+  item.level = Math.max(1, Math.min(5, Number(item.level) || 1));
+  const primaryAttribute = item.attribute || (Array.isArray(item.effects) && item.effects[0] && item.effects[0].attribute) || pick(['power', 'perception', 'persuasion']);
+  if (!Array.isArray(item.effects) || !item.effects.length) {
+    item.effects = itemEffectsForLevel(item.level, primaryAttribute);
+  } else {
+    item.effects = getItemEffects(item);
+  }
+  const primary = getItemPrimaryEffect(item);
+  item.attribute = primary.attribute;
+  item.magnitude = primary.magnitude;
+  return item;
+}
+
+function setItemLevel(item, level) {
+  normalizeBuffItem(item);
+  item.level = Math.max(1, Math.min(5, Number(level) || 1));
+  item.effects = itemEffectsForLevel(item.level, item.attribute);
+  const primary = getItemPrimaryEffect(item);
+  item.attribute = primary.attribute;
+  item.magnitude = primary.magnitude;
+  return item;
+}
+
+function merchantItemPrice(item) {
+  if (!item) return 0;
+  if (item.type === 'curseClear') return MERCHANT_LEVEL_1_ITEM_PRICE;
+  normalizeBuffItem(item);
+  return item.level * MERCHANT_LEVEL_1_ITEM_PRICE;
+}
+
 function rollItemData() {
   if (Math.random() < CURSE_CLEAR_ITEM_CHANCE) {
     return { type: 'curseClear', name: '' };
   }
+  const attribute = pick(['power', 'perception', 'persuasion']);
   return {
     type: 'buff',
-    attribute: pick(['power', 'perception', 'persuasion']),
-    magnitude: rollD(5),
+    level: 1,
+    attribute,
+    magnitude: 1,
+    effects: itemEffectsForLevel(1, attribute),
     name: '',
   };
 }
 
 function itemDescription(item) {
   if (item.type === 'curseClear') return 'Removes one curse';
-  return `+${item.magnitude} ${attrLabel(item.attribute)}`;
+  normalizeBuffItem(item);
+  const effects = getItemEffects(item)
+    .map(effect => `+${effect.magnitude} ${attrLabel(effect.attribute)}`)
+    .join(', ');
+  return `Lvl ${item.level}: ${effects}`;
 }
 
 function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
   const source = typeof itemData === 'object' && itemData
-    ? itemData
-    : { type: 'buff', name: itemData, attribute: legacyAttribute, magnitude: legacyMagnitude };
+    ? { ...itemData }
+    : { type: 'buff', name: itemData, attribute: legacyAttribute, magnitude: legacyMagnitude, level: Math.max(1, Math.min(5, Number(legacyMagnitude) || 1)) };
   const type = source.type === 'curseClear' ? 'curseClear' : 'buff';
   if (type === 'curseClear') {
     const finalName = source.name && String(source.name).trim()
@@ -572,14 +775,22 @@ function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
     return item;
   }
 
-  const attribute = source.attribute || pick(['power', 'perception', 'persuasion']);
-  const magnitude = Math.max(1, Math.min(5, Number(source.magnitude) || 1));
-  const strength = magnitude <= 2 ? 'Weak' : 'Strong';
-  const fallbackPool = ITEM_NAMES[attribute][strength];
+  normalizeBuffItem(source);
+  const primary = getItemPrimaryEffect(source);
+  const strength = source.level <= 2 ? 'Weak' : 'Strong';
+  const fallbackPool = ITEM_NAMES[primary.attribute][strength];
   const finalName = source.name && String(source.name).trim()
     ? String(source.name).trim()
-    : pick(fallbackPool.length ? fallbackPool : ITEM_NAMES[attribute].Strong);
-  const item = { type, name: finalName, attribute, magnitude, equipped: false };
+    : pick(fallbackPool.length ? fallbackPool : ITEM_NAMES[primary.attribute].Strong);
+  const item = {
+    type,
+    name: finalName,
+    level: source.level,
+    attribute: primary.attribute,
+    magnitude: primary.magnitude,
+    effects: source.effects,
+    equipped: false,
+  };
   G.player.inventory.push(item);
   return item;
 }
@@ -593,14 +804,99 @@ function pickFallbackCurseName(attribute, magnitude) {
 
 function applyCurseFromEncounter(data) {
   const fc = data.failCurse;
-  ensureRuntimeCursePools();
-  const bucket = AVAILABLE_CURSE_POOLS[fc.attribute] && AVAILABLE_CURSE_POOLS[fc.attribute][String(fc.magnitude)];
-  const name = bucket && bucket.length
-    ? bucket.pop()
-    : pickFallbackCurseName(fc.attribute, fc.magnitude);
-  const s = { name, attribute: fc.attribute, magnitude: fc.magnitude };
+  const curse = drawAvailableCurse(fc.attribute, fc.magnitude);
+  const s = { name: curse.name, attribute: curse.attribute, magnitude: curse.magnitude };
   G.player.statuses.push(s);
   return s;
+}
+
+function drawAvailableCurse(preferredAttribute, preferredMagnitude) {
+  ensureRuntimeCursePools();
+  const preferredBucket = AVAILABLE_CURSE_POOLS[preferredAttribute] && AVAILABLE_CURSE_POOLS[preferredAttribute][String(preferredMagnitude)];
+  if (preferredBucket && preferredBucket.length) {
+    return {
+      name: preferredBucket.pop(),
+      attribute: preferredAttribute,
+      magnitude: preferredMagnitude,
+    };
+  }
+
+  const options = [];
+  for (const attribute of ['power', 'perception', 'persuasion']) {
+    for (const magnitude of ['-1', '-2']) {
+      const bucket = AVAILABLE_CURSE_POOLS[attribute] && AVAILABLE_CURSE_POOLS[attribute][magnitude];
+      if (bucket && bucket.length) options.push({ attribute, magnitude: Number(magnitude), bucket });
+    }
+  }
+
+  if (options.length) {
+    const choice = pick(options);
+    return {
+      name: choice.bucket.pop(),
+      attribute: choice.attribute,
+      magnitude: choice.magnitude,
+    };
+  }
+
+  return {
+    name: pickFallbackCurseName(preferredAttribute, preferredMagnitude),
+    attribute: preferredAttribute,
+    magnitude: preferredMagnitude,
+  };
+}
+
+function rollMoneyReward(range = LARGE_MONEY_REWARD) {
+  return { type: 'money', amount: rollRange(range) };
+}
+
+function rollDungeonRewardData() {
+  if (Math.random() < MONEY_REWARD_CHANCE) return rollMoneyReward();
+  return { type: 'item', item: rollItemData() };
+}
+
+function normalizeRewardData(data) {
+  if (!data) return rollDungeonRewardData();
+  if (data.reward) return data.reward;
+  if (data.rewardItem) return { type: 'item', item: data.rewardItem };
+  return rollDungeonRewardData();
+}
+
+function fillDefaultRewardName(reward) {
+  if (!reward) return;
+  if (reward.type === 'item') fillDefaultItemName(reward.item);
+}
+
+function applyGeneratedRewardName(reward, workingPools) {
+  if (!reward) return;
+  if (reward.type === 'item') applyGeneratedItemName(reward.item, workingPools);
+}
+
+function grantReward(reward) {
+  if (!reward) return null;
+  if (reward.type === 'money') {
+    const amount = addMoney(reward.amount);
+    return { type: 'money', amount };
+  }
+  const item = addItemFixed(reward.item);
+  return { type: 'item', item };
+}
+
+function rewardName(reward) {
+  if (!reward) return 'a reward';
+  if (reward.type === 'money') return `${reward.amount} coins`;
+  return reward.item.name;
+}
+
+function rewardDescription(reward) {
+  if (!reward) return 'Reward';
+  if (reward.type === 'money') return `${reward.amount} coins`;
+  return `${reward.item.name} (${itemDescription(reward.item)})`;
+}
+
+function grantedRewardText(granted) {
+  if (!granted) return 'nothing';
+  if (granted.type === 'money') return `${granted.amount} coins`;
+  return `<em>${granted.item.name}</em> (${itemDescription(granted.item)})`;
 }
 
 function damage(n) {
@@ -631,21 +927,21 @@ async function checkGameOver() {
     else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
 
     addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss');
-    addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
     const prompt = buildGameOverPrompt(reasonText, getPlayerContext());
-    const narration = await generateNarration(AI_CONTEXT, prompt);
-
-    const logDiv = document.getElementById('log');
-    if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-    if (narration) addLog(narration, 'event-loss');
+    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss');
 
     G.phase = 'gameover-loss';
+    logGameOverSummaryOnce();
     renderUI();
     return true;
   }
   return false;
+}
+
+function logGameOverSummaryOnce() {
+  if (!G || G.gameOverSummaryLogged) return;
+  G.gameOverSummaryLogged = true;
+  addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss', { focus: false });
 }
 
 function levelUp() {
@@ -678,18 +974,20 @@ function isReachable(cells, sx, sy, ex, ey) {
 function generateGrid() {
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
-  const startX = Math.floor(W / 2);
-  const startY = Math.floor(H / 2);
-  const wallN = Math.floor(W * H * WALL_RATIO);
+  const startY = 0;
+  const exitY = H - 1;
 
   for (let attempt = 0; attempt < GRID_GEN_MAX_ATTEMPTS; attempt++) {
+    const startX = Math.floor(Math.random() * W);
+    const exitPos = { x: Math.floor(Math.random() * W), y: exitY };
+    const wallN = Math.floor((W * H - 2) * WALL_RATIO);
     const cells = Array.from({ length: H }, () =>
       Array.from({ length: W }, () =>
         ({ type: null, data: {}, visited: false, fled: false })));
 
     const positions = [];
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-      if (!(x === startX && y === startY)) positions.push({ x, y });
+      if (!(x === startX && y === startY) && !(x === exitPos.x && y === exitPos.y)) positions.push({ x, y });
 
     for (let i = positions.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -699,31 +997,22 @@ function generateGrid() {
     for (let i = 0; i < wallN; i++)
       cells[positions[i].y][positions[i].x].type = 'wall';
 
-    const open = positions.slice(wallN);
-    const upperThirdLimit = Math.ceil(H / 3);
-    // const validExits = open.filter(p => p.y < upperThirdLimit);
-    const validExits = open.filter(p => 
-      p.x === 0 || 
-      p.y === 0 || 
-      p.x === W - 1 || 
-      p.y === H - 1
-    );
-    const finalValidExits = validExits.length ? validExits : open;
-    // if (!validExits.length) continue;
-    // const exitPos = validExits[Math.floor(Math.random() * validExits.length)];
-    // cells[exitPos.y][exitPos.x].type = 'exit';
-    if (!finalValidExits.length) continue;
-    const exitPos = finalValidExits[Math.floor(Math.random() * finalValidExits.length)];
     cells[exitPos.y][exitPos.x].type = 'exit';
+    cells[startY][startX].type = 'start';
 
-    // if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
     if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
 
-    cells[startY][startX].type = 'start';
     cells[startY][startX].visited = true;
+    cells[startY][startX].encounterState = 'none';
+    cells[exitPos.y][exitPos.x].encounterState = 'none';
 
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (cells[y][x].type) continue;
+      if (Math.random() < EMPTY_CELL_CHANCE) {
+        cells[y][x].type = 'empty';
+        cells[y][x].encounterState = 'none';
+        continue;
+      }
       const t = pick(ENCOUNTER_TYPES);
       cells[y][x].type = t;
       const diff = rollDifficultyByDistance(x, y, exitPos.x, exitPos.y);
@@ -734,26 +1023,30 @@ function generateGrid() {
           failCurse: { attribute: failAttr, magnitude: -1 },
           name: '',
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'treasure') {
         const failMag = rollD(2);
         const failAttr = pick(['power', 'perception', 'persuasion']);
         cells[y][x].data = {
           difficulty: diff,
           failCurse: { attribute: failAttr, magnitude: -failMag },
-          rewardItem: rollItemData(),
+          reward: rollDungeonRewardData(),
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'npc') {
         const failAttr = pick(['power', 'perception', 'persuasion']);
         cells[y][x].data = {
           check: diff,
           failCurse: { attribute: failAttr, magnitude: -2 },
           name: '',
-          rewardItem: rollItemData(),
+          reward: rollDungeonRewardData(),
         };
+        cells[y][x].encounterState = 'active';
       } else if (t === 'item') {
         cells[y][x].data = {
           pickup: rollItemData(),
         };
+        cells[y][x].encounterState = 'active';
       }
     }
 
@@ -767,9 +1060,71 @@ function cloneGridForPlay(grid) {
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
     const c = g.cells[y][x];
     c.visited = c.type === 'start';
+    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'exit' || c.type === 'wall' || c.type === 'empty' ? 'none' : 'active');
     c.fled = false;
   }
   return g;
+}
+
+function generateTown() {
+  const start = { x: Math.floor(TOWN_WIDTH / 2), y: TOWN_HEIGHT - 1 };
+  const cells = Array.from({ length: TOWN_HEIGHT }, (_, y) =>
+    Array.from({ length: TOWN_WIDTH }, (_, x) => ({
+      type: 'town-empty',
+      data: {},
+      visited: true,
+      revealed: true,
+      fled: false,
+      encounterState: 'none',
+    })));
+
+  cells[start.y][start.x] = {
+    type: 'town-gate',
+    data: {},
+    visited: true,
+    revealed: true,
+    fled: false,
+    encounterState: 'none',
+  };
+
+  const npcPositions = [];
+  for (let y = 0; y < TOWN_HEIGHT; y++) for (let x = 0; x < TOWN_WIDTH; x++) {
+    if (x === start.x && y === start.y) continue;
+    npcPositions.push({ x, y });
+  }
+
+  for (let i = npcPositions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [npcPositions[i], npcPositions[j]] = [npcPositions[j], npcPositions[i]];
+  }
+
+  const placeTownNpc = (role, name, mapIcon, serviceCost = 0) => {
+    const pos = npcPositions.pop();
+    cells[pos.y][pos.x] = {
+      type: 'town-npc',
+      data: {
+        role,
+        name,
+        mapIcon,
+        serviceCost,
+        details: AI_CONTEXT.townNpcDetails,
+      },
+      visited: true,
+      revealed: true,
+      fled: false,
+      encounterState: 'active',
+    };
+    return pos;
+  };
+
+  const npcs = {
+    healer: placeTownNpc('healer', 'the healer', 'H', HEALER_SERVICE_COST),
+    curseRemover: placeTownNpc('curseRemover', 'the curse remover', 'C', CURSE_REMOVER_SERVICE_COST),
+    upgrader: placeTownNpc('upgrader', 'the upgrader', 'U', ITEM_UPGRADE_COST),
+    merchant: placeTownNpc('merchant', 'the merchant', 'M'),
+  };
+
+  return { cells, start, npcs };
 }
 
 function fillDefaultItemName(item) {
@@ -779,12 +1134,11 @@ function fillDefaultItemName(item) {
     return;
   }
 
-  item.type = 'buff';
-  if (!item.attribute) item.attribute = pick(['power', 'perception', 'persuasion']);
-  item.magnitude = Math.max(1, Math.min(5, Number(item.magnitude) || 1));
-  const strength = item.magnitude <= 2 ? 'Weak' : 'Strong';
+  normalizeBuffItem(item);
+  const primary = getItemPrimaryEffect(item);
+  const strength = item.level <= 2 ? 'Weak' : 'Strong';
   if (!item.name) {
-    item.name = pick(ITEM_NAMES[item.attribute][strength]);
+    item.name = pick(ITEM_NAMES[primary.attribute][strength]);
   }
 }
 
@@ -797,11 +1151,13 @@ function fillDefaultNames(grid) {
       const cat = getDifficultyCategory(d.power);
       if (!d.name) d.name = pick(ENEMY_NAMES[cat]);
     } else if (t === 'treasure') {
-      fillDefaultItemName(d.rewardItem);
+      d.reward = normalizeRewardData(d);
+      fillDefaultRewardName(d.reward);
     } else if (t === 'npc') {
       const cat = getDifficultyCategory(d.check);
       if (!d.name) d.name = pick(NPC_NAMES[cat]);
-      fillDefaultItemName(d.rewardItem);
+      d.reward = normalizeRewardData(d);
+      fillDefaultRewardName(d.reward);
     } else if (t === 'item' && d.pickup) {
       fillDefaultItemName(d.pickup);
     }
@@ -819,11 +1175,13 @@ function applyNamePoolsToGrid(grid, namePools) {
       const cat = getDifficultyCategory(d.power);
       d.name = drawPoolName(workingPools.enemies[cat], () => pick(ENEMY_NAMES[cat]));
     } else if (t === 'treasure') {
-      applyGeneratedItemName(d.rewardItem, workingPools);
+      d.reward = normalizeRewardData(d);
+      applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'npc') {
       const cat = getDifficultyCategory(d.check);
       d.name = drawPoolName(workingPools.npcs[cat], () => pick(NPC_NAMES[cat]));
-      applyGeneratedItemName(d.rewardItem, workingPools);
+      d.reward = normalizeRewardData(d);
+      applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'item') {
       applyGeneratedItemName(d.pickup, workingPools);
     }
@@ -845,7 +1203,8 @@ async function continueEncounter() {
   G.pendingResolveFn = null;
   G.canFlee = false;
 
-  const cell = G.grid.cells[G.player.pos.y][G.player.pos.x];
+  const pos = getCurrentPos();
+  const cell = getCurrentGrid().cells[pos.y][pos.x];
   cell.fled = false;
 
   await fn();
@@ -857,7 +1216,8 @@ async function continueEncounter() {
 }
 
 async function fleeEncounter() {
-  const cell = G.grid.cells[G.player.pos.y][G.player.pos.x];
+  const pos = getCurrentPos();
+  const cell = getCurrentGrid().cells[pos.y][pos.x];
   cell.fled = true;
   G.pendingResolveFn = null;
   G.canFlee = false;
@@ -866,16 +1226,9 @@ async function fleeEncounter() {
 
   G.fleeCooldown = true;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildFleeNarrationPrompt(getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-neutral');
-  addLog(`You flee from the encounter. It remains here should you return.`, 'event-neutral');
+  const narration = await streamNarrationLog(prompt);
+  addLog(`You flee from the encounter. It remains here should you return.`, 'event-neutral', { focus: !narration });
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -891,16 +1244,11 @@ async function startEnemy(data, canFlee) {
   const diffCat = getDifficultyCategory(data.power);
   const defaultText = `You enter a chamber and face <span class="highlight">${data.name}</span>. Its Power is <span class="highlight">${diffCat}</span>. Your effective Power is <span class="highlight">${eff.power}</span>. Brace yourself…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildEnemyStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-enemy'),
+    () => { if (!narration) addLog(defaultText, 'event-enemy'); },
     () => resolveEnemy(data),
     canFlee,
     'enemy'
@@ -912,31 +1260,29 @@ async function resolveEnemy(data) {
   renderInputPanel();
   const eff = getEff();
   const won = eff.power >= data.power;
-
   let mechText = '';
   let s = null;
   if (won) {
-    mechText = `<span class="good-txt">Your strength prevails — ${data.name} falls. Victory!</span><br><span class="good-txt">⬆ You gain a level.</span>`;
+    const gained = addMoney(rollRange(ENEMY_WIN_MONEY));
+    mechText = `<span class="good-txt">Your strength prevails — ${data.name} falls. Victory!</span><br><span class="good-txt">⬆ You gain a level · +${gained} coins.</span>`;
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    const gained = addMoney(rollRange(ENEMY_LOSS_MONEY));
+    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude}) · +${gained} coins.</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
-  const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-enemy');
-  addLog(mechText, 'event-enemy');
+  const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext(), s);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
+  addLog(mechText, 'event-enemy', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
-  if (won) levelUp();
+  if (won) {
+    markCurrentDungeonEncounter('cleared');
+    levelUp();
+  }
   else {
+    markCurrentDungeonEncounter('failed');
     const isGameOver = await checkGameOver();
     if (!isGameOver) {
       G.phase = 'playing';
@@ -949,18 +1295,15 @@ async function startTreasure(data, canFlee) {
   renderInputPanel();
   const eff = getEff();
   const diffCat = getDifficultyCategory(data.difficulty);
+  data.reward = normalizeRewardData(data);
+  fillDefaultRewardName(data.reward);
   const defaultText = `You spot something in the shadows — a hidden cache, or perhaps a snare. The Difficulty is <span class="highlight">${diffCat}</span>. Your Agility is <span class="highlight">${eff.perception}</span>. Proceed carefully…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-  const item = data.rewardItem
-  const prompt = buildTreasureStartPrompt(diffCat, getPlayerContext(), item);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const prompt = buildTreasureStartPrompt(diffCat, getPlayerContext(), data.reward);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-treasure'),
+    () => { if (!narration) addLog(defaultText, 'event-treasure'); },
     () => resolveTreasure(data),
     canFlee,
     'treasure'
@@ -974,31 +1317,29 @@ async function resolveTreasure(data) {
   const won = eff.perception > data.difficulty;
 
   let mechText = '';
-  let item = null;
+  let granted = null;
   let s = null;
   if (won) {
-    item = addItemFixed(data.rewardItem);
-    mechText = `<span class="good-txt">Your agility (${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: <em>${item.name}</em> (${itemDescription(item)})</span>`;
+    data.reward = normalizeRewardData(data);
+    granted = grantReward(data.reward);
+    mechText = `<span class="good-txt">Your agility (${eff.perception}) beats the concealment (Difficulty ${data.difficulty}). Treasure claimed!</span><br><span class="good-txt">⬆ You gain a level and pocket: ${grantedRewardText(granted)}</span>`;
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
     mechText = `<span class="danger-txt">You trigger the treasure's trap (Difficulty ${data.difficulty} vs Agility ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-  const item_name = data.rewardItem.name
-  const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), item_name, data, s);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-treasure');
-  addLog(mechText, 'event-treasure');
+  const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), data.reward, data, s);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-treasure');
+  addLog(mechText, 'event-treasure', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
 
-  if (won) levelUp();
+  if (won) {
+    markCurrentDungeonEncounter('cleared');
+    levelUp();
+  }
   else {
+    markCurrentDungeonEncounter('failed');
     const isGameOver = await checkGameOver();
     if (!isGameOver) {
       G.phase = 'playing';
@@ -1013,16 +1354,11 @@ async function startNPC(data, canFlee) {
   const diffCat = getDifficultyCategory(data.check);
   const defaultText = `You encounter <span class="highlight">${data.name}</span>. They eye you warily. The Persuasion check is <span class="highlight">${diffCat}</span>. Your Persuasion is <span class="highlight">${eff.persuasion}</span>. Choose your words…`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildNpcStartPrompt(data, diffCat, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
 
   pause(
-    () => addLog(narration ? narration : defaultText, 'event-npc'),
+    () => { if (!narration) addLog(defaultText, 'event-npc'); },
     () => resolveNPC(data),
     canFlee,
     'npc'
@@ -1034,30 +1370,26 @@ async function resolveNPC(data) {
   renderInputPanel();
   const eff = getEff();
   const won = eff.persuasion >= data.check;
+  data.reward = normalizeRewardData(data);
+  fillDefaultRewardName(data.reward);
 
   let mechText = '';
-  let item = null;
+  let granted = null;
   let s = null;
   if (won) {
-    item = addItemFixed(data.rewardItem);
-    mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: <em>${item.name}</em> (${itemDescription(item)})</span>`;
+    granted = grantReward(data.reward);
+    mechText = `<span class="good-txt">Your words win them over (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). They offer a gift.</span><br><span class="good-txt">Received: ${grantedRewardText(granted)}</span>`;
   } else {
-    item = data.rewardItem.name;
     s = applyCurseFromEncounter(data);
-    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    damage(1);
+    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
   }
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
-  const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), item, s);
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-npc');
-  addLog(mechText, 'event-npc');
+  const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), data.reward, s);
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-npc');
+  addLog(mechText, 'event-npc', { focus: !narration });
   if (s) await refreshPhysicalDescription(`Inflicted curse ${s.name}.`);
+  markCurrentDungeonEncounter(won ? 'cleared' : 'failed');
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -1072,16 +1404,10 @@ async function startItem(data) {
   const item = addItemFixed(data.pickup);
   const defaultText = `You find an item on the floor: <span class="good-txt">${item.name}</span> (${itemDescription(item)}).`;
 
-  addLog(`<span class="info-txt">The narrator is thinking...</span>`, 'event-neutral');
-
   const prompt = buildFloorItemPrompt(item, getPlayerContext());
-  const narration = await generateNarration(AI_CONTEXT, prompt);
-
-  const logDiv = document.getElementById('log');
-  if (logDiv.lastChild) logDiv.removeChild(logDiv.lastChild);
-
-  if (narration) addLog(narration, 'event-neutral');
-  addLog(defaultText, 'event-neutral');
+  const narration = await streamNarrationLog(prompt);
+  addLog(defaultText, 'event-neutral', { focus: !narration });
+  markCurrentDungeonEncounter('cleared');
 
   const isGameOver = await checkGameOver();
   if (!isGameOver) {
@@ -1090,9 +1416,210 @@ async function startItem(data) {
   }
 }
 
+function returnCurseToPool(curse) {
+  ensureRuntimeCursePools();
+  const bucket = AVAILABLE_CURSE_POOLS[curse.attribute] && AVAILABLE_CURSE_POOLS[curse.attribute][String(curse.magnitude)];
+  if (bucket) bucket.push(curse.name);
+}
+
+function payForTownService(data) {
+  const cost = Math.max(0, Math.floor(Number(data.serviceCost) || 0));
+  if (!spendMoney(cost)) {
+    addLog(`<span class="danger-txt">${data.name} charges ${cost} coins, but you only have ${G.player.money}.</span>`, 'event-neutral');
+    renderUI();
+    return false;
+  }
+  return true;
+}
+
+async function startTownNpc(data) {
+  if (!data) {
+    addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+  if (data.role === 'healer') {
+    await visitHealer(data);
+    return;
+  }
+  if (data.role === 'curseRemover') {
+    await visitCurseRemover(data);
+    return;
+  }
+  if (data.role === 'upgrader') {
+    await visitUpgrader(data);
+    return;
+  }
+  if (data.role === 'merchant') {
+    await visitMerchant(data);
+    return;
+  }
+
+  addLog(`<span class="info-txt">They have nothing for you yet.</span>`, 'event-neutral');
+  renderUI();
+}
+
+async function visitHealer(data) {
+  if (!payForTownService(data)) return;
+  G.phase = 'loading';
+  renderInputPanel();
+  const maxHp = PLAYER_MAX_HP;
+  const previousHp = G.player.hp;
+  G.player.hp = maxHp;
+
+  const fallbackText = previousHp < maxHp
+    ? `<span class="good-txt">${data.name} restores your HP to full for ${data.serviceCost} coins.</span>`
+    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and says your wounds are already healed.</span>`;
+
+  const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The healer is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
+  if (previousHp < maxHp) await refreshPhysicalDescription(`Town healer restored HP from ${previousHp} to ${maxHp}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+async function visitCurseRemover(data) {
+  if (!payForTownService(data)) return;
+  G.phase = 'loading';
+  renderInputPanel();
+  const removed = G.player.statuses.length ? G.player.statuses.shift() : null;
+  if (removed) returnCurseToPool(removed);
+
+  const fallbackText = removed
+    ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em> for ${data.serviceCost} coins.</span>`
+    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and finds no curses to remove.</span>`;
+
+  const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The curse remover is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
+  if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+function chooseInventoryIndex(items, label, formatter) {
+  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
+  const raw = prompt(`${label}:\n${choices}`, '1');
+  if (raw == null) return -1;
+  const choiceIndex = Number(raw) - 1;
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length) return -1;
+  return items[choiceIndex].index;
+}
+
+function chooseInventoryIndexes(items, label, formatter) {
+  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
+  const raw = prompt(`${label}:\n${choices}\n\nEnter one or more numbers separated by commas.`, '1');
+  if (raw == null) return [];
+  const picked = [];
+  const seen = new Set();
+  for (const part of String(raw).split(',')) {
+    const choiceIndex = Number(part.trim()) - 1;
+    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length || seen.has(choiceIndex)) continue;
+    seen.add(choiceIndex);
+    picked.push(items[choiceIndex].index);
+  }
+  return picked;
+}
+
+async function visitUpgrader(data) {
+  const eligible = G.player.inventory
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.type === 'buff' && normalizeBuffItem(item).level < 5);
+
+  if (!eligible.length) {
+    addLog(`<span class="info-txt">${data.name} can only upgrade status items below level 5.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  const itemIndex = chooseInventoryIndex(
+    eligible,
+    `Choose a status item to upgrade for ${data.serviceCost} coins`,
+    itemDescription,
+  );
+  if (itemIndex < 0) {
+    addLog(`<span class="info-txt">No item was upgraded.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  if (!payForTownService(data)) return;
+
+  G.phase = 'loading';
+  renderInputPanel();
+  const item = G.player.inventory[itemIndex];
+  const previousLevel = normalizeBuffItem(item).level;
+  setItemLevel(item, previousLevel + 1);
+  const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${data.serviceCost} coins.</span>`;
+
+  const prompt = buildUpgraderDialoguePrompt(data, item, previousLevel, getPlayerContext());
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The upgrader is speaking...</span>', 'event-npc');
+  addLog(fallbackText, 'event-neutral', { focus: !narration });
+  await refreshPhysicalDescription(`Town upgrader improved ${item.name} from level ${previousLevel} to level ${item.level}.`);
+  G.phase = 'playing';
+  renderUI();
+}
+
+async function visitMerchant(data) {
+  const sellable = G.player.inventory
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !(item.type === 'buff' && item.equipped));
+  if (!sellable.length) {
+    addLog(`<span class="info-txt">${data.name} only buys unequipped items.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  const itemIndexes = chooseInventoryIndexes(
+    sellable,
+    'Choose item(s) to sell',
+    item => `${itemDescription(item)} · ${merchantItemPrice(item)} coins`,
+  );
+  if (!itemIndexes.length) {
+    addLog(`<span class="info-txt">No item was sold.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  const sold = [];
+  let total = 0;
+  for (const index of itemIndexes.sort((a, b) => b - a)) {
+    const item = G.player.inventory[index];
+    if (!item || (item.type === 'buff' && item.equipped)) continue;
+    const price = merchantItemPrice(item);
+    total += price;
+    sold.push({ item, price });
+    G.player.inventory.splice(index, 1);
+  }
+
+  if (!sold.length) {
+    addLog(`<span class="info-txt">No item was sold.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  addMoney(total);
+  const soldText = sold.reverse().map(({ item, price }) => `<em>${item.name}</em> (${price} coins)`).join(', ');
+  addLog(`<span class="good-txt">${data.name} buys ${soldText}. Total: ${total} coins.</span>`, 'event-neutral');
+  G.phase = 'playing';
+  renderUI();
+}
+
 function movePlayer(dir) {
+  if (G.phase !== 'playing') return;
+  if (G.currentLocation === 'town') {
+    movePlayerInTown(dir);
+    return;
+  }
+  movePlayerInDungeon(dir);
+}
+
+function movePlayerInDungeon(dir) {
   const { dx, dy } = DIRECTIONS[dir];
-  const np = { x: G.player.pos.x + dx, y: G.player.pos.y + dy };
+  const pos = getCurrentPos();
+  const grid = getCurrentGrid();
+  const np = { x: pos.x + dx, y: pos.y + dy };
 
   if (np.x < 0 || np.x >= GRID_WIDTH || np.y < 0 || np.y >= GRID_HEIGHT) {
     addLog(`There is nothing but solid stone in that direction.`, 'event-neutral');
@@ -1100,27 +1627,42 @@ function movePlayer(dir) {
     return;
   }
 
-  if (G.grid.cells[np.y][np.x].type === 'wall') {
+  if (grid.cells[np.y][np.x].type === 'wall') {
+    grid.cells[np.y][np.x].visited = true;
     addLog(`A wall of cold stone blocks your path.`, 'event-neutral');
     renderUI();
     return;
   }
 
-  G.player.pos = np;
+  setCurrentPos(np);
   G.turns++;
 
-  const cell = G.grid.cells[np.y][np.x];
+  const cell = grid.cells[np.y][np.x];
 
   if (cell.type === 'exit') {
     cell.visited = true;
     G.phase = 'gameover-win';
     addLog(`<span class="good-txt">✦ Daylight floods through a hidden door. You have escaped the dungeon!</span>`, 'event-win');
-    addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win');
+    addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win', { focus: false });
     renderUI();
     return;
   }
 
-  if (cell.visited && !cell.fled) {
+  if (cell.type === 'start') {
+    cell.visited = true;
+    checkGameOver().then(isGameOver => {
+      if (!isGameOver) renderUI();
+    });
+    return;
+  }
+
+  if (cell.encounterState === 'cleared') {
+    checkGameOver().then(isGameOver => {
+      if (!isGameOver) renderUI();
+    });
+    return;
+  }
+  if (cell.encounterState === 'failed-empty') {
     checkGameOver().then(isGameOver => {
       if (!isGameOver) renderUI();
     });
@@ -1135,6 +1677,52 @@ function movePlayer(dir) {
   else if (cell.type === 'npc') startNPC(cell.data, canFlee);
   else if (cell.type === 'item') startItem(cell.data);
   else renderUI();
+}
+
+function movePlayerInTown(dir) {
+  const { dx, dy } = DIRECTIONS[dir];
+  const pos = getCurrentPos();
+  const grid = getCurrentGrid();
+  const np = { x: pos.x + dx, y: pos.y + dy };
+
+  if (np.x < 0 || np.x >= TOWN_WIDTH || np.y < 0 || np.y >= TOWN_HEIGHT) {
+    addLog(`The town boundary stops you from wandering farther.`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  setCurrentPos(np);
+  G.turns++;
+  const cell = grid.cells[np.y][np.x];
+  if (cell.type === 'town-npc') {
+    addLog(`You approach <span class="highlight">${cell.data.name}</span>.`, 'event-neutral');
+  }
+  renderUI();
+}
+
+function enterTown() {
+  if (G.currentLocation !== 'dungeon') return;
+  respawnFailedDungeonEncounters();
+  G.currentLocation = 'town';
+  G.phase = 'playing';
+  G.pendingResolveFn = null;
+  G.canFlee = false;
+  const town = G.locations.town;
+  town.pos = { x: town.grid.start.x, y: town.grid.start.y };
+  addLog(`<span class="info-txt">You leave the dungeon entrance and return to town.</span>`, 'event-neutral');
+  renderUI();
+}
+
+function enterDungeon() {
+  if (G.currentLocation !== 'town') return;
+  G.currentLocation = 'dungeon';
+  G.phase = 'playing';
+  G.pendingResolveFn = null;
+  G.canFlee = false;
+  const dungeon = G.locations.dungeon;
+  dungeon.pos = { x: dungeon.grid.start.x, y: dungeon.grid.start.y };
+  addLog(`<span class="info-txt">You descend through the dungeon entrance.</span>`, 'event-neutral');
+  renderUI();
 }
 
 function getEquippedItemCount() {
@@ -1180,9 +1768,7 @@ async function useCurseClearItem(index) {
   }
 
   const removed = curses.splice(curseIndex, 1)[0];
-  ensureRuntimeCursePools();
-  const bucket = AVAILABLE_CURSE_POOLS[removed.attribute] && AVAILABLE_CURSE_POOLS[removed.attribute][String(removed.magnitude)];
-  if (bucket) bucket.push(removed.name);
+  returnCurseToPool(removed);
   G.player.inventory.splice(index, 1);
   addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');
   await refreshPhysicalDescription(`Removed curse ${removed.name} with ${item.name}.`);
@@ -1197,13 +1783,156 @@ function applyLevelUp(attr) {
   renderUI();
 }
 
-function addLog(html, cls = 'event-neutral') {
+function paginateChronicleText(text, maxChars = 230) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const pages = [];
+  let page = '';
+  for (const word of words) {
+    const next = page ? `${page} ${word}` : word;
+    if (next.length > maxChars && page) {
+      pages.push(page);
+      page = word;
+    } else {
+      page = next;
+    }
+  }
+  if (page) pages.push(page);
+  return pages.length ? pages : [''];
+}
+
+function setChroniclePlainText(el, text) {
+  el._chronicleFullText = String(text || '');
+  el._chroniclePages = paginateChronicleText(text);
+  el._chroniclePage = Math.min(el._chroniclePage || 0, el._chroniclePages.length - 1);
+  if (CHRONICLE_SHOW_ALL) {
+    el.textContent = el._chronicleFullText;
+  } else if (el.classList.contains('active')) {
+    el.textContent = el._chroniclePages[el._chroniclePage];
+  }
+}
+function toggleSidebar() {
+  document.getElementById('sidebar')
+    .classList.toggle('collapsed');
+}
+function addLog(html, cls = 'event-neutral', options = {}) {
   const div = document.getElementById('log');
   const el = document.createElement('div');
   el.className = `log-entry ${cls}`;
-  el.innerHTML = html;
+  if (options.plainText) setChroniclePlainText(el, html);
+  else el.innerHTML = html;
   div.appendChild(el);
-  document.getElementById('log-panel').scrollTop = 99999;
+  const entries = getChronicleEntries();
+  if (options.focus !== false) CHRONICLE_INDEX = entries.length - 1;
+  updateChronicleVisibility();
+  return el;
+}
+
+function getChronicleEntries() {
+  const div = document.getElementById('log');
+  return div ? Array.from(div.querySelectorAll('.log-entry')) : [];
+}
+
+function updateChronicleVisibility() {
+  const entries = getChronicleEntries();
+  if (!entries.length) return;
+  CHRONICLE_INDEX = Math.max(0, Math.min(CHRONICLE_INDEX, entries.length - 1));
+  entries.forEach((entry, index) => {
+    const active = index === CHRONICLE_INDEX;
+    entry.classList.toggle('active', active);
+    if (entry._chroniclePages) {
+      if (CHRONICLE_SHOW_ALL) {
+        entry.textContent = entry._chronicleFullText || entry._chroniclePages.join(' ');
+      } else if (active) {
+        entry.textContent = entry._chroniclePages[entry._chroniclePage || 0];
+      }
+    }
+  });
+  const hint = document.getElementById('chronicle-hint');
+  if (hint) {
+    const current = entries[CHRONICLE_INDEX];
+    const pageText = current && current._chroniclePages && current._chroniclePages.length > 1
+      ? ` page ${(current._chroniclePage || 0) + 1}/${current._chroniclePages.length}`
+      : '';
+    if (CHRONICLE_SHOW_ALL) {
+      hint.textContent = `Showing all chronicle entries (${entries.length})`;
+    } else if (CHRONICLE_INDEX < entries.length - 1 || pageText) {
+      hint.textContent = `Tap chronicle or press Space: next${pageText} (${CHRONICLE_INDEX + 1}/${entries.length})`;
+    } else {
+      hint.textContent = `Tap chronicle or press Space: current (${CHRONICLE_INDEX + 1}/${entries.length})`;
+    }
+  }
+  const button = document.getElementById('btn-chronicle-history');
+  if (button) {
+    button.textContent = CHRONICLE_SHOW_ALL ? 'Show Current Entry' : 'Show All History';
+    button.setAttribute('aria-pressed', CHRONICLE_SHOW_ALL ? 'true' : 'false');
+  }
+}
+
+function advanceChronicle() {
+  const entries = getChronicleEntries();
+  if (!entries.length) return false;
+  const current = entries[CHRONICLE_INDEX];
+  if (current && current._chroniclePages && (current._chroniclePage || 0) < current._chroniclePages.length - 1) {
+    current._chroniclePage = (current._chroniclePage || 0) + 1;
+    updateChronicleVisibility();
+    return true;
+  }
+  if (CHRONICLE_INDEX < entries.length - 1) {
+    CHRONICLE_INDEX++;
+    updateChronicleVisibility();
+    return true;
+  }
+  updateChronicleVisibility();
+  return false;
+}
+
+function advanceChronicleForAction() {
+  advanceChronicle();
+}
+
+function focusChronicleEntry(el) {
+  const entries = getChronicleEntries();
+  const index = entries.indexOf(el);
+  if (index >= 0) {
+    CHRONICLE_INDEX = index;
+    updateChronicleVisibility();
+  }
+}
+
+function toggleChronicleHistory() {
+  CHRONICLE_SHOW_ALL = !CHRONICLE_SHOW_ALL;
+  const panel = document.getElementById('log-panel');
+  if (panel) panel.classList.toggle('show-all', CHRONICLE_SHOW_ALL);
+  updateChronicleVisibility();
+}
+
+async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
+  const chronicleContext = (G.llmChronicle || '').slice(-30000);
+  const el = addLog(placeholderHtml, cls);
+  focusChronicleEntry(el);
+  let text = '';
+  const promptWithContext = `the story so far: ${chronicleContext}. Current event:`+ prompt
+  const narration = await generateNarration(AI_CONTEXT, promptWithContext, {
+    onChunk: (chunk, fullText) => {
+      text = fullText || (text + chunk);
+      setChroniclePlainText(el, text);
+      focusChronicleEntry(el);
+    },
+  });
+  if (!narration) {
+    if (el.parentNode) el.parentNode.removeChild(el);
+    updateChronicleVisibility();
+    return null;
+  }
+  
+  setChroniclePlainText(el, narration);
+  focusChronicleEntry(el);
+  if (narration) {
+  G.llmChronicle = G.llmChronicle
+    ? `${G.llmChronicle}\n\n${narration.trim()}`
+    : narration.trim();
+}
+  return narration;
 }
 
 function renderStatusPanel() {
@@ -1218,7 +1947,7 @@ function renderStatusPanel() {
   const activeHtml = equippedItems.length
     ? equippedItems.map(e =>
       `<span class="status-tag" style="border-color:rgba(90,170,208,0.5);background:rgba(58,96,128,0.15);color:#7ecfee;">
-          ${e.name}: +${e.magnitude} ${attrLabel(e.attribute)}
+          ${e.name}: ${itemDescription(e)}
         </span>`).join('')
     : '<span class="empty-note">None</span>';
 
@@ -1228,30 +1957,47 @@ function renderStatusPanel() {
           <span class="item-name">${item.name}</span>
           <span class="item-effect">${itemDescription(item)}</span>
           ${item.type === 'buff'
-            ? `<button class="btn-use" onclick="toggleEquipItem(${i})">${item.equipped ? 'Unequip' : 'Equip'}</button>`
-            : `<button class="btn-use" onclick="useCurseClearItem(${i})">Use</button>`}
+            ? `<button class="btn-use" onclick="advanceChronicleForAction(); toggleEquipItem(${i})">${item.equipped ? 'Unequip' : 'Equip'}</button>`
+            : `<button class="btn-use" onclick="advanceChronicleForAction(); useCurseClearItem(${i})">Use</button>`}
         </div>`).join('')
     : '<span class="empty-note">Empty</span>';
-
-  const attrLine = (label, baseVal, effVal) => {
+    
+  const attrValue = (baseVal, effVal) => {
     const diff = effVal - baseVal;
-    const mod = diff === 0 ? ''
-      : diff > 0 ? ` <span class="good-txt">(+${diff})</span>`
-        : ` <span class="danger-txt">(${diff})</span>`;
-    return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-val">${effVal}${mod}</span></div>`;
+    return diff === 0 ? `${effVal}`
+      : diff > 0 ? ` <span class="good-txt">${effVal}</span>`
+        : ` <span class="danger-txt">${effVal}</span>`;
   };
 
+  const heartsHtml = Array.from({ length: PLAYER_MAX_HP }, (_, index) => {
+    const emptyClass = index < p.hp ? '' : ' empty';
+    return `<img class="heart-icon${emptyClass}" src="assets/Health.png" alt="${index < p.hp ? 'HP' : 'Missing HP'}">`;
+  }).join('');
+
   document.getElementById('status-content').innerHTML = `
-    <div class="stat-row"><span class="stat-label">Level</span><span class="stat-val">${p.level}</span>
-    <span class="stat-label">HP</span>
-      <span class="stat-val ${p.hp <= 2 ? 'danger' : ''}">${p.hp} / 5</span></div>
-    <div class="hp-bar"><div class="hp-fill" style="width:${(p.hp / 5) * 100}%"></div></div>
+    <div class="vitals-row">
+      <div class="heart-row" aria-label="HP ${p.hp} of ${PLAYER_MAX_HP}">${heartsHtml}</div>
+      <div class="coins-display" aria-label="Coins ${p.money}">
+        <img class="coins-icon" src="assets/coins.png" alt="Coins">
+        <span>${p.money}</span>
+      </div>
+    </div>
 
-    <div class="panel-title section-gap" style="font-size:0.85rem;">Attributes</div>
-    ${attrLine('Power', p.base.power, eff.power)}
-    ${attrLine('Agility', p.base.perception, eff.perception)}
-    ${attrLine('Persuasion', p.base.persuasion, eff.persuasion)}
-
+    <div class="attribute-strip">
+      <div class="attribute-pill" title="Power">
+        <img class="attribute-icon" src="assets/power.png" alt="Power">
+        <span class="attribute-value">${attrValue(p.base.power, eff.power)}</span>
+      </div>
+      <div class="attribute-pill" title="Agility">
+        <img class="attribute-icon" src="assets/agility.png" alt="Agility">
+        <span class="attribute-value">${attrValue(p.base.perception, eff.perception)}</span>
+      </div>
+      <div class="attribute-pill" title="Persuasion">
+        <img class="attribute-icon" src="assets/persuasion.png" alt="Persuasion">
+        <span class="attribute-value">${attrValue(p.base.persuasion, eff.persuasion)}</span>
+      </div>
+    </div>
+<div class= "status-details">
     <div class="panel-title section-gap" style="font-size:0.85rem;">Equipped Items (${equippedItems.length} / ${MAX_EQUIPPED_ITEMS})</div>
     <div style="padding:4px 0;">${activeHtml}</div>
 
@@ -1260,28 +2006,56 @@ function renderStatusPanel() {
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Inventory</div>
     <div>${invHtml}</div>
+    </div>
   `;
 }
 
 function renderInputPanel() {
   const title = document.getElementById('input-title');
   const buttons = document.getElementById('input-buttons');
+  const movementPad = document.getElementById('movement-pad');
+  const movementDisabled = G.phase !== 'playing';
+  movementPad.innerHTML = `
+    <button class="btn btn-dir btn-dir-north" onclick="advanceChronicleForAction(); movePlayer('North')" aria-label="Move north" ${movementDisabled ? 'disabled' : ''}>▲</button>
+    <button class="btn btn-dir btn-dir-west" onclick="advanceChronicleForAction(); movePlayer('West')" aria-label="Move west" ${movementDisabled ? 'disabled' : ''}>◀</button>
+    <button class="btn btn-dir btn-dir-east" onclick="advanceChronicleForAction(); movePlayer('East')" aria-label="Move east" ${movementDisabled ? 'disabled' : ''}>▶</button>
+    <button class="btn btn-dir btn-dir-south" onclick="advanceChronicleForAction(); movePlayer('South')" aria-label="Move south" ${movementDisabled ? 'disabled' : ''}>▼</button>
+  `;
+
+
+  
+  const setTitle = (text) => {
+    if (title) title.textContent = text;
+  };
 
   if (G.phase === 'loading') {
-    title.textContent = 'Please wait...';
+    setTitle('Please wait...');
     buttons.innerHTML = '';
     return;
   }
 
   if (G.phase === 'playing') {
-    title.textContent = 'Choose Direction';
-    buttons.innerHTML = Object.keys(DIRECTIONS).map(dir =>
-      `<button class="btn btn-dir" onclick="movePlayer('${dir}')">${dir}</button>`).join('');
+    setTitle('');
+    const cell = getCurrentCell();
+    const actionButtons = [];
+    if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterTown()">Exit Dungeon</button>`);
+    }
+    if (G.currentLocation === 'town' && cell && cell.type === 'town-gate') {
+   
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterDungeon()">Enter Dungeon</button>`);
+    }
+    if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
+      const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
+    }
+    buttons.innerHTML = `<div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
+    if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
     return;
   }
 
   if (G.phase === 'encounter-pause') {
-    title.textContent = 'An encounter awaits…';
+    setTitle('An encounter awaits…');
     let resolveText = 'Resolve';
     let fleeText = 'Flee';
     let resolveIcon = '⚔';
@@ -1300,9 +2074,9 @@ function renderInputPanel() {
       resolveIcon = '🗣';
     }
 
-    buttons.innerHTML = `<button class="btn btn-continue" onclick="continueEncounter()">${resolveIcon} &nbsp;${resolveText}</button>`;
+    buttons.innerHTML = `<button class="btn btn-continue" onclick="advanceChronicleForAction(); continueEncounter()">${resolveIcon} &nbsp;${resolveText}</button>`;
     if (G.canFlee) {
-      buttons.innerHTML += `<button class="btn btn-flee" onclick="fleeEncounter()">${fleeIcon} &nbsp;${fleeText}</button>`;
+      buttons.innerHTML += `<button class="btn btn-flee" onclick="advanceChronicleForAction(); fleeEncounter()">${fleeIcon} &nbsp;${fleeText}</button>`;
     } else {
       let reason = G.fleeCooldown ? "You must resolve an encounter before fleeing again." : "You cannot flee from this encounter again.";
       buttons.innerHTML += `<button class="btn btn-flee" disabled style="opacity: 0.5; cursor: not-allowed;" title="${reason}">${fleeIcon} &nbsp;${fleeText}</button>`;
@@ -1311,12 +2085,12 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'levelup') {
-    title.textContent = '⬆ Level Up — Choose an Attribute to Improve';
+    setTitle('⬆ Level Up — Choose an Attribute to Improve');
     buttons.innerHTML = ['power', 'perception', 'persuasion'].map(attr => {
       const cur = G.player.base[attr];
       const next = Math.min(MAX_ATTR, cur + 1);
       const cap = cur >= MAX_ATTR;
-      return `<button class="btn btn-attr" onclick="applyLevelUp('${attr}')" ${cap ? 'disabled' : ''}>
+      return `<button class="btn btn-attr" onclick="advanceChronicleForAction(); applyLevelUp('${attr}')" ${cap ? 'disabled' : ''}>
         + ${attrLabel(attr)} &nbsp;(${cur} → ${next})
       </button>`;
     }).join('');
@@ -1324,37 +2098,66 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'gameover-win') {
-    title.textContent = '✦ Victory';
+    setTitle('✦ Victory');
     buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Play Again</button>`;
     return;
   }
 
   if (G.phase === 'gameover-loss') {
-    title.textContent = '✦ Defeated';
+    setTitle('✦ Defeated');
     buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Try Again</button>`;
-    addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss');
     return;
   }
 }
 
+
 function renderMinimap() {
   const grid = document.getElementById('minimap-grid');
-  const W = GRID_WIDTH;
-  const H = GRID_HEIGHT;
-  grid.style.gridTemplateColumns = `repeat(${W}, 14px)`;
-  grid.style.gridTemplateRows = `repeat(${H}, 14px)`;
+  const location = G.currentLocation;
+  const locationState = getLocationState();
+
+  const MINIMAP_VIEW_RADIUS = 2;
+  const VIEW_SIZE = MINIMAP_VIEW_RADIUS * 2 + 1;
+
+  const W = location === 'town'? TOWN_WIDTH : GRID_WIDTH;
+  const H = location === 'town'? TOWN_HEIGHT : GRID_HEIGHT;
+  const px = locationState.pos.x;
+  const py = locationState.pos.y;
+
+  // CHANGED: grid is now fixed to VIEW_SIZE instead of full W/H
+  grid.style.gridTemplateColumns = `repeat(${VIEW_SIZE}, var(--map-cell-size))`;
+  grid.style.gridTemplateRows = `repeat(${VIEW_SIZE}, var(--map-cell-size))`;
+
   let html = '';
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const cell = G.grid.cells[y][x];
-      const isPlayer = G.player.pos.x === x && G.player.pos.y === y;
+
+  // CHANGED: loop only around player, not full grid
+  for (let dy = -MINIMAP_VIEW_RADIUS; dy <= MINIMAP_VIEW_RADIUS; dy++) {
+    for (let dx = -MINIMAP_VIEW_RADIUS; dx <= MINIMAP_VIEW_RADIUS; dx++) {
+      const x = px + dx;
+      const y = py + dy;
+
       let cls = 'minimap-cell', content = '';
-      if (cell.visited) {
-        cls += ' visited';
-        if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
-        if (cell.fled) { cls += ' fled'; content = '!'; }
+
+      // CHANGED: handle out-of-bounds as walls
+      if (x < 0 || y < 0 || x >= W || y >= H) {
+        cls += ' wall';
+      } else {
+        const cell = locationState.grid.cells[y][x];
+        const isPlayer = dx === 0 && dy === 0; // center is always player
+        const visible = location === 'town' || cell.visited || cell.type === 'start';
+
+        if (visible) {
+          cls += ' visited';
+          if (cell.type === 'wall') { cls += ' wall'; content = ''; }
+          if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
+          if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
+          if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }
+          if (cell.type === 'town-npc') { content = cell.data.mapIcon || 'N'; }
+        }
+
+        if (isPlayer) { cls += ' player'; content = '◉'; }
       }
-      if (isPlayer) { cls += ' player'; content = '◉'; }
+
       html += `<div class="${cls}">${content}</div>`;
     }
   }
@@ -1387,6 +2190,7 @@ async function generateTheme() {
     inputs = await fillMissingNamingInputs(inputs);
     AI_CONTEXT.theme = buildThemeSummary(inputs);
     AI_CONTEXT.characterDesc = inputs.charDesc;
+    AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
     const request = buildCachedNamingRequest(inputs);
     const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw] = await Promise.all([
@@ -1451,6 +2255,7 @@ function skipTheme() {
   const inputs = getNamingPromptInputs();
   AI_CONTEXT.theme = buildThemeSummary(inputs);
   AI_CONTEXT.characterDesc = inputs.charDesc;
+  AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
   const debugDiv = document.getElementById('debug-names');
   const raw = debugDiv.value.trim();
@@ -1506,14 +2311,39 @@ function skipTheme() {
 
 function startGame(className) {
   initState(className);
+  CHRONICLE_INDEX = 0;
+  CHRONICLE_SHOW_ALL = false;
+  toggleStatusPanel(false);
+  const logPanel = document.getElementById('log-panel');
+  if (logPanel) logPanel.classList.remove('show-all');
+  document.body.classList.add('game-active');
   document.getElementById('setup-screen').style.display = 'none';
-  document.getElementById('game-container').style.display = 'grid';
+  document.getElementById('game-container').style.display = '';
   addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
   renderUI();
 }
 
+const chroniclePanel = document.getElementById('log-panel');
+if (chroniclePanel) {
+  chroniclePanel.addEventListener('click', (event) => {
+    if (event.target && event.target.closest && event.target.closest('button')) return;
+    advanceChronicle();
+  });
+  chroniclePanel.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    advanceChronicle();
+  });
+}
+
 document.addEventListener('keydown', (e) => {
-  if (!G || G.phase !== 'playing') return;
+  if (!G) return;
+  if (e.key === ' ' || e.code === 'Space') {
+    e.preventDefault();
+    advanceChronicle();
+    return;
+  }
+  if (G.phase !== 'playing') return;
   const arrows = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
   const wsad =
     e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W'
@@ -1528,4 +2358,7 @@ document.addEventListener('keydown', (e) => {
   if (!wsad) return;
   if (arrows.includes(e.key)) e.preventDefault();
   movePlayer(wsad);
+  if (e.key === 'Escape') {
+  toggleStatusPanel(false);
+}
 });

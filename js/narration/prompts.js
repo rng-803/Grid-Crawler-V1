@@ -26,6 +26,21 @@ Player state: ${playerContext}
 Describe the defeat and ultimate fate of the adventurer.`;
 }
 
+function buildBossStartPrompt(data, playerContext) {
+  return `The player has reached the final chamber and encountered the boss: ${data.name}.
+Player state: ${playerContext}
+The boss challenge has three consecutive checks in order: agility, persuasion, then combat.
+Describe the start of this final confrontation before the player commits. Do not present UI options.`;
+}
+
+function buildBossResolvePrompt(data, stage, won, playerContext) {
+  const stageLabel = stage === 'perception' ? 'agility' : (stage === 'persuasion' ? 'persuasion' : 'combat');
+  return `The player is attempting the boss ${stageLabel} check against ${data.name}.
+Player state: ${playerContext}
+Outcome: The player ${won ? `passed the ${stageLabel} check and advances.` : `failed the ${stageLabel} check and is defeated.`}
+Describe only this stage's immediate outcome in the ongoing final confrontation.`;
+}
+
 function buildFleeNarrationPrompt(playerContext) {
   return `The player chose to flee from the encounter.
 Player state: ${playerContext}
@@ -262,6 +277,20 @@ Return ONLY valid JSON in this shape:
     "agility": { "Weak": ["<name>"], "Strong": ["<name>"] },
     "persuasion": { "Weak": ["<name>"], "Strong": ["<name>"] },
     "curseClear": ["<name>"]
+  }
+}`;
+}
+
+function buildBossNamePrompt(inputs) {
+  return `You are naming the final boss for a grid-based dungeon crawler. ${buildNameGeneratorContext(inputs, 'enemy')}
+
+Generate exactly one boss name that sounds unique, threatening, and climactic for the final encounter.
+The name should be short and suitable for in-game reuse.
+
+Return ONLY valid JSON in this shape:
+{
+  "boss": {
+    "name": "<boss name>"
   }
 }`;
 }

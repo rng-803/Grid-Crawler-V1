@@ -21,6 +21,13 @@ const MAX_EQUIPPED_ITEMS = 3;
 const CURSE_CLEAR_ITEM_CHANCE = 0.25;
 const GRID_GEN_MAX_ATTEMPTS = 200;
 
+// Debug toggles
+// If both DEBUG_WIN_ALL_ENCOUNTERS and DEBUG_LOSE_ALL_ENCOUNTERS are true,
+// lose-all takes precedence.
+const DEBUG_INFINITE_HEALTH = false;
+const DEBUG_WIN_ALL_ENCOUNTERS = false;
+const DEBUG_LOSE_ALL_ENCOUNTERS = false;
+
 const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 
 // Persistent debuffs applied to the player (shown in-game as “curses”).

@@ -17,6 +17,7 @@ let AI_CONTEXT = {
 };
 let CHRONICLE_INDEX = 0;
 let CHRONICLE_SHOW_ALL = false;
+const DEFAULT_BOSS_NAMES = ['the Ash Tyrant', 'the Hollow Sovereign', 'the Final Warden', 'the Iron Maw'];
 
 function toggleAdvancedSetup(forceVisible) {
   const panel = document.getElementById('advanced-setup-fields');
@@ -124,6 +125,7 @@ function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
     npcs: buildNpcNamesPrompt(inputs, requirements.npcs),
     curses: buildCurseNamesPrompt(inputs, requirements.curses),
     items: buildItemNamesPrompt(inputs, requirements.items),
+    boss: buildBossNamePrompt(inputs),
   };
   NAMING_PROMPT_CACHE = { signature, grid, requirements, prompts };
   return NAMING_PROMPT_CACHE;
@@ -933,9 +935,9 @@ async function checkGameOver() {
     if (reason === 'hp') reasonText = 'You have succumbed to your wounds (0 HP).';
     else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
 
-    addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss');
+    addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss', { focus: false });
     const prompt = buildGameOverPrompt(reasonText, getPlayerContext());
-    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss');
+    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss', { focus: false });
 
     G.phase = 'gameover-loss';
     logGameOverSummaryOnce();
@@ -1006,7 +1008,7 @@ function generateGrid() {
 
     cells[bossPos.y][bossPos.x].type = 'boss';
     cells[bossPos.y][bossPos.x].data = {
-      name: 'the Dungeon Overlord',
+      name: pick(DEFAULT_BOSS_NAMES),
       checks: { perception: 12, persuasion: 14, power: 16 },
     };
     cells[startY][startX].type = 'start';
@@ -1171,6 +1173,8 @@ function fillDefaultNames(grid) {
       fillDefaultRewardName(d.reward);
     } else if (t === 'item' && d.pickup) {
       fillDefaultItemName(d.pickup);
+    } else if (t === 'boss') {
+      if (!d.name) d.name = pick(DEFAULT_BOSS_NAMES);
     }
   }
 }
@@ -1195,6 +1199,22 @@ function applyNamePoolsToGrid(grid, namePools) {
       applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'item') {
       applyGeneratedItemName(d.pickup, workingPools);
+    } else if (t === 'boss') {
+      if (namePools && namePools.boss && namePools.boss.name) {
+        d.name = String(namePools.boss.name).trim();
+      }
+    }
+  }
+}
+
+function applyBossNameToGrid(grid, bossName) {
+  const fallback = pick(DEFAULT_BOSS_NAMES);
+  const finalName = String(bossName || '').trim() || fallback;
+  for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
+    const cell = grid.cells[y][x];
+    if (cell.type === 'boss') {
+      cell.data.name = finalName;
+      return;
     }
   }
 }
@@ -1461,7 +1481,7 @@ async function resolveBoss(data) {
     addLog(mechText, won ? 'event-win' : 'event-loss', { focus: !narration });
     if (!won) {
       G.phase = 'gameover-loss';
-      addLog(`<span class="danger-txt">☠ The boss has ended your run.</span>`, 'event-loss');
+      addLog(`<span class="danger-txt">☠ The boss has ended your run.</span>`, 'event-loss', { focus: false });
       logGameOverSummaryOnce();
       return;
     }
@@ -1965,19 +1985,28 @@ function toggleChronicleHistory() {
   const panel = document.getElementById('log-panel');
   if (panel) panel.classList.toggle('show-all', CHRONICLE_SHOW_ALL);
   updateChronicleVisibility();
+  if (CHRONICLE_SHOW_ALL) {
+    const log = document.getElementById('log');
+    if (log) {
+      requestAnimationFrame(() => {
+        log.scrollTop = log.scrollHeight;
+      });
+    }
+  }
 }
 
-async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
+async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral', options = {}) {
   const chronicleContext = (G.llmChronicle || '').slice(-30000);
-  const el = addLog(placeholderHtml, cls);
-  focusChronicleEntry(el);
+  const shouldFocus = options.focus !== false;
+  const el = addLog(placeholderHtml, cls, { focus: shouldFocus });
+  if (shouldFocus) focusChronicleEntry(el);
   let text = '';
   const promptWithContext = `the story so far: ${chronicleContext}. Current event:`+ prompt
   const narration = await generateNarration(AI_CONTEXT, promptWithContext, {
     onChunk: (chunk, fullText) => {
       text = fullText || (text + chunk);
       setChroniclePlainText(el, text);
-      focusChronicleEntry(el);
+      if (shouldFocus) focusChronicleEntry(el);
     },
   });
   if (!narration) {
@@ -1987,7 +2016,7 @@ async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-t
   }
   
   setChroniclePlainText(el, narration);
-  focusChronicleEntry(el);
+  if (shouldFocus) focusChronicleEntry(el);
   if (narration) {
   G.llmChronicle = G.llmChronicle
     ? `${G.llmChronicle}\n\n${narration.trim()}`
@@ -2254,11 +2283,12 @@ async function generateTheme() {
     AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
     const request = buildCachedNamingRequest(inputs);
-    const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw] = await Promise.all([
+    const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw, bossNameRaw] = await Promise.all([
       fetchGridNamingPromptJson(request.prompts.enemies, 'enemyNames'),
       fetchGridNamingPromptJson(request.prompts.npcs, 'npcNames'),
       fetchGridNamingPromptJson(request.prompts.curses, 'curseNames'),
       fetchGridNamingPromptJson(request.prompts.items, 'itemNames'),
+      fetchGridNamingPromptJson(request.prompts.boss, 'bossName'),
     ]);
     const enemyNames = JSON.parse(enemyNamesRaw);
     const npcNames = JSON.parse(npcNamesRaw);
@@ -2272,6 +2302,7 @@ async function generateTheme() {
     });
 
     applyNamePoolsToGrid(request.grid, namePools);
+    applyBossNameToGrid(request.grid, bossNameJson && bossNameJson.boss && bossNameJson.boss.name);
     setRuntimeCursePools(namePools.curses);
     fillDefaultNames(request.grid);
     PENDING_NAMED_GRID = request.grid;

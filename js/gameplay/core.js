@@ -17,6 +17,7 @@ let AI_CONTEXT = {
 };
 let CHRONICLE_INDEX = 0;
 let CHRONICLE_SHOW_ALL = false;
+const DEFAULT_BOSS_NAMES = ['the Ash Tyrant', 'the Hollow Sovereign', 'the Final Warden', 'the Iron Maw'];
 
 function toggleAdvancedSetup(forceVisible) {
   const panel = document.getElementById('advanced-setup-fields');
@@ -124,6 +125,7 @@ function buildCachedNamingRequest(inputs = getNamingPromptInputs()) {
     npcs: buildNpcNamesPrompt(inputs, requirements.npcs),
     curses: buildCurseNamesPrompt(inputs, requirements.curses),
     items: buildItemNamesPrompt(inputs, requirements.items),
+    boss: buildBossNamePrompt(inputs),
   };
   NAMING_PROMPT_CACHE = { signature, grid, requirements, prompts };
   return NAMING_PROMPT_CACHE;
@@ -900,7 +902,14 @@ function grantedRewardText(granted) {
 }
 
 function damage(n) {
+  if (DEBUG_INFINITE_HEALTH) return;
   G.player.hp = Math.max(0, G.player.hp - n);
+}
+
+function resolveEncounterOutcome(defaultWon) {
+  if (DEBUG_LOSE_ALL_ENCOUNTERS) return false;
+  if (DEBUG_WIN_ALL_ENCOUNTERS) return true;
+  return defaultWon;
 }
 
 async function checkGameOver() {
@@ -926,9 +935,9 @@ async function checkGameOver() {
     if (reason === 'hp') reasonText = 'You have succumbed to your wounds (0 HP).';
     else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
 
-    addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss');
+    addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss', { focus: false });
     const prompt = buildGameOverPrompt(reasonText, getPlayerContext());
-    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss');
+    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss', { focus: false });
 
     G.phase = 'gameover-loss';
     logGameOverSummaryOnce();
@@ -975,11 +984,11 @@ function generateGrid() {
   const W = GRID_WIDTH;
   const H = GRID_HEIGHT;
   const startY = 0;
-  const exitY = H - 1;
+  const bossY = H - 1;
 
   for (let attempt = 0; attempt < GRID_GEN_MAX_ATTEMPTS; attempt++) {
     const startX = Math.floor(Math.random() * W);
-    const exitPos = { x: Math.floor(Math.random() * W), y: exitY };
+    const bossPos = { x: Math.floor(Math.random() * W), y: bossY };
     const wallN = Math.floor((W * H - 2) * WALL_RATIO);
     const cells = Array.from({ length: H }, () =>
       Array.from({ length: W }, () =>
@@ -987,7 +996,7 @@ function generateGrid() {
 
     const positions = [];
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-      if (!(x === startX && y === startY) && !(x === exitPos.x && y === exitPos.y)) positions.push({ x, y });
+      if (!(x === startX && y === startY) && !(x === bossPos.x && y === bossPos.y)) positions.push({ x, y });
 
     for (let i = positions.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -997,14 +1006,18 @@ function generateGrid() {
     for (let i = 0; i < wallN; i++)
       cells[positions[i].y][positions[i].x].type = 'wall';
 
-    cells[exitPos.y][exitPos.x].type = 'exit';
+    cells[bossPos.y][bossPos.x].type = 'boss';
+    cells[bossPos.y][bossPos.x].data = {
+      name: pick(DEFAULT_BOSS_NAMES),
+      checks: { perception: 12, persuasion: 14, power: 16 },
+    };
     cells[startY][startX].type = 'start';
 
-    if (!isReachable(cells, startX, startY, exitPos.x, exitPos.y)) continue;
+    if (!isReachable(cells, startX, startY, bossPos.x, bossPos.y)) continue;
 
     cells[startY][startX].visited = true;
     cells[startY][startX].encounterState = 'none';
-    cells[exitPos.y][exitPos.x].encounterState = 'none';
+    cells[bossPos.y][bossPos.x].encounterState = 'active';
 
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (cells[y][x].type) continue;
@@ -1015,7 +1028,7 @@ function generateGrid() {
       }
       const t = pick(ENCOUNTER_TYPES);
       cells[y][x].type = t;
-      const diff = rollDifficultyByDistance(x, y, exitPos.x, exitPos.y);
+      const diff = rollDifficultyByDistance(x, y, bossPos.x, bossPos.y);
       if (t === 'enemy') {
         const failAttr = pick(['power', 'perception', 'persuasion']);
         cells[y][x].data = {
@@ -1050,7 +1063,7 @@ function generateGrid() {
       }
     }
 
-    return { cells, exit: exitPos, start: { x: startX, y: startY } };
+    return { cells, boss: bossPos, start: { x: startX, y: startY } };
   }
   throw new Error(`Map generation failed after ${GRID_GEN_MAX_ATTEMPTS} attempts.`);
 }
@@ -1060,7 +1073,7 @@ function cloneGridForPlay(grid) {
   for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
     const c = g.cells[y][x];
     c.visited = c.type === 'start';
-    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'exit' || c.type === 'wall' || c.type === 'empty' ? 'none' : 'active');
+    c.encounterState = c.encounterState || (c.type === 'start' || c.type === 'wall' || c.type === 'empty' ? 'none' : 'active');
     c.fled = false;
   }
   return g;
@@ -1160,6 +1173,8 @@ function fillDefaultNames(grid) {
       fillDefaultRewardName(d.reward);
     } else if (t === 'item' && d.pickup) {
       fillDefaultItemName(d.pickup);
+    } else if (t === 'boss') {
+      if (!d.name) d.name = pick(DEFAULT_BOSS_NAMES);
     }
   }
 }
@@ -1184,6 +1199,22 @@ function applyNamePoolsToGrid(grid, namePools) {
       applyGeneratedRewardName(d.reward, workingPools);
     } else if (t === 'item') {
       applyGeneratedItemName(d.pickup, workingPools);
+    } else if (t === 'boss') {
+      if (namePools && namePools.boss && namePools.boss.name) {
+        d.name = String(namePools.boss.name).trim();
+      }
+    }
+  }
+}
+
+function applyBossNameToGrid(grid, bossName) {
+  const fallback = pick(DEFAULT_BOSS_NAMES);
+  const finalName = String(bossName || '').trim() || fallback;
+  for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) {
+    const cell = grid.cells[y][x];
+    if (cell.type === 'boss') {
+      cell.data.name = finalName;
+      return;
     }
   }
 }
@@ -1259,7 +1290,7 @@ async function resolveEnemy(data) {
   G.phase = 'loading';
   renderInputPanel();
   const eff = getEff();
-  const won = eff.power >= data.power;
+  const won = resolveEncounterOutcome(eff.power >= data.power);
   let mechText = '';
   let s = null;
   if (won) {
@@ -1314,7 +1345,7 @@ async function resolveTreasure(data) {
   G.phase = 'loading';
   renderInputPanel();
   const eff = getEff();
-  const won = eff.perception > data.difficulty;
+  const won = resolveEncounterOutcome(eff.perception > data.difficulty);
 
   let mechText = '';
   let granted = null;
@@ -1369,7 +1400,7 @@ async function resolveNPC(data) {
   G.phase = 'loading';
   renderInputPanel();
   const eff = getEff();
-  const won = eff.persuasion >= data.check;
+  const won = resolveEncounterOutcome(eff.persuasion >= data.check);
   data.reward = normalizeRewardData(data);
   fillDefaultRewardName(data.reward);
 
@@ -1414,6 +1445,52 @@ async function startItem(data) {
     G.phase = 'playing';
     renderUI();
   }
+}
+
+async function startBoss(data) {
+  G.phase = 'loading';
+  renderInputPanel();
+  const eff = getEff();
+  const defaultText = `The final chamber opens. <span class="highlight">${data.name}</span> blocks your path. Three trials await: Agility (${eff.perception} vs ${data.checks.perception}), Persuasion (${eff.persuasion} vs ${data.checks.persuasion}), then Combat (${eff.power} vs ${data.checks.power}).`;
+  const prompt = buildBossStartPrompt(data, getPlayerContext());
+  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-enemy');
+  pause(
+    () => { if (!narration) addLog(defaultText, 'event-enemy'); },
+    () => resolveBoss(data),
+    false,
+    'boss'
+  );
+}
+
+async function resolveBoss(data) {
+  G.phase = 'loading';
+  renderInputPanel();
+  const eff = getEff();
+  const checks = [
+    { key: 'perception', label: 'Agility' },
+    { key: 'persuasion', label: 'Persuasion' },
+    { key: 'power', label: 'Combat' },
+  ];
+  for (const stage of checks) {
+    const won = resolveEncounterOutcome(eff[stage.key] >= data.checks[stage.key]);
+    const mechText = won
+      ? `<span class="good-txt">Boss ${stage.label} check passed (${eff[stage.key]} vs ${data.checks[stage.key]}).</span>`
+      : `<span class="danger-txt">Boss ${stage.label} check failed (${eff[stage.key]} vs ${data.checks[stage.key]}). You are defeated.</span>`;
+    const prompt = buildBossResolvePrompt(data, stage.key, won, getPlayerContext());
+    const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', won ? 'event-win' : 'event-loss');
+    addLog(mechText, won ? 'event-win' : 'event-loss', { focus: !narration });
+    if (!won) {
+      G.phase = 'gameover-loss';
+      addLog(`<span class="danger-txt">☠ The boss has ended your run.</span>`, 'event-loss', { focus: false });
+      logGameOverSummaryOnce();
+      return;
+    }
+  }
+
+  markCurrentDungeonEncounter('cleared');
+  G.phase = 'gameover-win';
+  addLog(`<span class="good-txt">✦ ${data.name} is defeated. You conquer the dungeon!</span>`, 'event-win');
+  addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win', { focus: false });
 }
 
 function returnCurseToPool(curse) {
@@ -1639,12 +1716,16 @@ function movePlayerInDungeon(dir) {
 
   const cell = grid.cells[np.y][np.x];
 
-  if (cell.type === 'exit') {
+  if (cell.type === 'boss') {
     cell.visited = true;
-    G.phase = 'gameover-win';
-    addLog(`<span class="good-txt">✦ Daylight floods through a hidden door. You have escaped the dungeon!</span>`, 'event-win');
-    addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win', { focus: false });
-    renderUI();
+    if (cell.encounterState === 'cleared') {
+      G.phase = 'gameover-win';
+      addLog(`<span class="good-txt">✦ The boss chamber lies silent. You are victorious.</span>`, 'event-win');
+      addLog(`Survived ${G.turns} moves · reached level ${G.player.level}.`, 'event-win', { focus: false });
+      renderUI();
+      return;
+    }
+    startBoss(cell.data);
     return;
   }
 
@@ -1904,19 +1985,28 @@ function toggleChronicleHistory() {
   const panel = document.getElementById('log-panel');
   if (panel) panel.classList.toggle('show-all', CHRONICLE_SHOW_ALL);
   updateChronicleVisibility();
+  if (CHRONICLE_SHOW_ALL) {
+    const log = document.getElementById('log');
+    if (log) {
+      requestAnimationFrame(() => {
+        log.scrollTop = log.scrollHeight;
+      });
+    }
+  }
 }
 
-async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral') {
+async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral', options = {}) {
   const chronicleContext = (G.llmChronicle || '').slice(-30000);
-  const el = addLog(placeholderHtml, cls);
-  focusChronicleEntry(el);
+  const shouldFocus = options.focus !== false;
+  const el = addLog(placeholderHtml, cls, { focus: shouldFocus });
+  if (shouldFocus) focusChronicleEntry(el);
   let text = '';
   const promptWithContext = `the story so far: ${chronicleContext}. Current event:`+ prompt
   const narration = await generateNarration(AI_CONTEXT, promptWithContext, {
     onChunk: (chunk, fullText) => {
       text = fullText || (text + chunk);
       setChroniclePlainText(el, text);
-      focusChronicleEntry(el);
+      if (shouldFocus) focusChronicleEntry(el);
     },
   });
   if (!narration) {
@@ -1926,7 +2016,7 @@ async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-t
   }
   
   setChroniclePlainText(el, narration);
-  focusChronicleEntry(el);
+  if (shouldFocus) focusChronicleEntry(el);
   if (narration) {
   G.llmChronicle = G.llmChronicle
     ? `${G.llmChronicle}\n\n${narration.trim()}`
@@ -2061,7 +2151,7 @@ function renderInputPanel() {
     let resolveIcon = '⚔';
     let fleeIcon = '🏃';
 
-    if (G.encounterType === 'enemy') {
+    if (G.encounterType === 'enemy' || G.encounterType === 'boss') {
       resolveText = 'Engage';
       fleeText = 'Flee';
     } else if (G.encounterType === 'treasure') {
@@ -2149,7 +2239,7 @@ function renderMinimap() {
         if (visible) {
           cls += ' visited';
           if (cell.type === 'wall') { cls += ' wall'; content = ''; }
-          if (cell.type === 'exit') { cls += ' exit'; content = '✦'; }
+          if (cell.type === 'boss') { cls += ' exit'; content = '☠'; }
           if (cell.type === 'start') { cls += ' exit'; content = 'E'; }
           if (cell.type === 'town-gate') { cls += ' exit'; content = 'E'; }
           if (cell.type === 'town-npc') { content = cell.data.mapIcon || 'N'; }
@@ -2193,16 +2283,20 @@ async function generateTheme() {
     AI_CONTEXT.townNpcDetails = inputs.townNpcDetails;
 
     const request = buildCachedNamingRequest(inputs);
-    const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw] = await Promise.all([
+    const [enemyNamesRaw, npcNamesRaw, curseNamesRaw, itemNamesRaw, bossNameRaw] = await Promise.all([
       fetchGridNamingPromptJson(request.prompts.enemies, 'enemyNames'),
       fetchGridNamingPromptJson(request.prompts.npcs, 'npcNames'),
       fetchGridNamingPromptJson(request.prompts.curses, 'curseNames'),
       fetchGridNamingPromptJson(request.prompts.items, 'itemNames'),
+      fetchGridNamingPromptJson(request.prompts.boss, 'bossName'),
     ]);
     const enemyNames = JSON.parse(enemyNamesRaw);
     const npcNames = JSON.parse(npcNamesRaw);
     const curseNames = JSON.parse(curseNamesRaw);
     const itemNames = JSON.parse(itemNamesRaw);
+    const bossNameJson = JSON.parse(bossNameRaw);
+    // Backward-compatible alias in case of stale references.
+    const bossnameJson = bossNameJson;
     const namePools = normalizeGeneratedNamePools({
       ...enemyNames,
       ...npcNames,
@@ -2211,6 +2305,7 @@ async function generateTheme() {
     });
 
     applyNamePoolsToGrid(request.grid, namePools);
+    applyBossNameToGrid(request.grid, (bossNameJson && bossNameJson.boss && bossNameJson.boss.name) || (bossnameJson && bossnameJson.boss && bossnameJson.boss.name));
     setRuntimeCursePools(namePools.curses);
     fillDefaultNames(request.grid);
     PENDING_NAMED_GRID = request.grid;
@@ -2319,7 +2414,7 @@ function startGame(className) {
   document.body.classList.add('game-active');
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('game-container').style.display = '';
-  addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. The exit lies somewhere within. Survive.`, 'event-neutral');
+  addLog(`You are standing at the entrance of a ${GRID_WIDTH}×${GRID_HEIGHT} dungeon. A boss awaits in the depths. Survive and defeat it.`, 'event-neutral');
   renderUI();
 }
 

@@ -2294,7 +2294,6 @@ async function generateTheme() {
     const npcNames = JSON.parse(npcNamesRaw);
     const curseNames = JSON.parse(curseNamesRaw);
     const itemNames = JSON.parse(itemNamesRaw);
-    const bossNameJson = JSON.parse(bossNameRaw);
     const namePools = normalizeGeneratedNamePools({
       ...enemyNames,
       ...npcNames,

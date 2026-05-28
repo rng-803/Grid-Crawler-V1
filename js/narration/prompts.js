@@ -15,6 +15,7 @@ function buildNarratorFullPrompt(aiContext, promptText) {
 
 let fullPrompt = `You are the narrator of an adventure story. ${themeContext} 
 The narration must be restricted to one or two paragraphs, in order to avoid making it too long. do not mention numbers and stats, so the immersion is not broken.
+The narration must be restricted to one or two paragraphs, in order to avoid making it too long. do not mention numbers and stats, so the immersion is not broken.always narrate in third person.
 ${promptText}`;
 console.log(fullPrompt);
 return fullPrompt
@@ -24,6 +25,7 @@ function buildGameOverPrompt(reasonText, playerContext) {
   return `The player has been defeated
 Player state: ${playerContext}
 Describe the defeat and ultimate fate of the adventurer.`;
+Describe the defeat and ultimate fate of the adventurer. provide a short epilogue`;
 }
 
 function buildBossStartPrompt(data, playerContext) {
@@ -65,6 +67,11 @@ function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
   const instructionText = won
     ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
     : `Describe the player losing the encounter without dying. Describe how the enemy imposed this curse onto the player: ${curseText}`;
+    : 'The player LOST. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.';
+
+  const instructionText = won
+    ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
+    : `Describe the player losing the encounter without dying. Describe how the enemy imposed onto the player: ${curseText}`;
 
   return `The player engaged the enemy: ${data.name}.
 Outcome: ${outcomeText}
@@ -92,6 +99,7 @@ function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
   return `The player investigated ${rewardText}.
 Player state: ${playerContext}
 Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and cursed the player with ${s.name} The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
+Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.`}.
 Describe the resolution of the encounter.  Do not describe events not related to the outcome of the encounter. do not give player their options for actions, you are just the story narrator`;
 }
 
@@ -99,6 +107,7 @@ function buildNpcStartPrompt(data, diffCat, playerContext) {
   return `The player has encountered an NPC: ${data.name} (Persuasion Difficulty: ${diffCat}).
 Player state: ${playerContext}
 Describe the start of the encounter, before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
+the NPC will ask something of the player, fitting for the theme. Describe the start of the encounter, before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
 }
 
 function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
@@ -106,6 +115,7 @@ function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
   return `The player talked to the NPC: ${data.name}.
 Player state: ${playerContext}
 Outcome: The player ${won ? `WON and received a gift: ${rewardText}` : `LOST and angered the NPC, and is cursed with ${s.name}, The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
+Outcome: The player ${won ? `succeeded and received a gift: ${rewardText}` : `failed to sway or satisfy the NPC. the NPC imposed ${s.name} upon the player, The player is not completely defeated, but has taken damage and is changed, and will continue the adventure in this state.`}.
 Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC, and take into account any speech modifying ailments or curses accrued by the player. Do not describe events not related to the outcome of the encounter. do not give player their options for actions, you are just the story narrator`;
 }
 
@@ -182,6 +192,7 @@ Equipped items: ${equippedItems}
 Curses currently affecting the player: ${curses}
 
 Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible.`;
+Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible. use objective concise language, not literary flair.`;
 }
 
 function buildNameGeneratorContext(inputs, detailKind) {

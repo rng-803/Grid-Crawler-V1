@@ -7,6 +7,7 @@ const DIRECTIONS = {
 
 let G = null;
 let PENDING_NAMED_GRID = null;
+let ACTIVE_NAME_POOLS = null;
 let NAMING_PROMPT_CACHE = null;
 let GENERATED_CURSE_POOLS = null;
 let AVAILABLE_CURSE_POOLS = null;
@@ -193,15 +194,7 @@ function togglePromptDebug() {
 
 function initState(className) {
   const base = CLASSES[className];
-  let dungeonGrid;
-  llmChronicle: ''
-  if (PENDING_NAMED_GRID) {
-    dungeonGrid = cloneGridForPlay(PENDING_NAMED_GRID);
-    PENDING_NAMED_GRID = null;
-  } else {
-    dungeonGrid = generateGrid();
-    fillDefaultNames(dungeonGrid);
-  }
+  const dungeonGrid = consumePendingOrGenerateDungeon();
   const townGrid = generateTown();
   G = {
     player: {
@@ -211,11 +204,18 @@ function initState(className) {
       class: className,
       base: { power: base.power, perception: base.perception, persuasion: base.persuasion },
       statuses: [],
+      permanentCurses: [],
       inventory: [],
       physicalDescription: AI_CONTEXT.characterDesc || `A ${className} adventurer.`,
       physicalDescriptionLoading: false,
     },
     currentLocation: 'dungeon',
+    runNumber: 1,
+    betweenRuns: false,
+    lastDefeat: null,
+    storySummary: '',
+    currentRunChronicle: '',
+    runDefeatInProgress: false,
     locations: {
       dungeon: {
         grid: dungeonGrid,
@@ -228,6 +228,7 @@ function initState(className) {
     },
     phase: 'playing',
     turns: 0,
+    runTurns: 0,
     gameOverSummaryLogged: false,
     pendingResolveFn: null,
     canFlee: false,
@@ -501,6 +502,11 @@ function ensureRuntimeCursePools() {
   }
 }
 
+function resetAvailableCursePoolsForRun() {
+  ensureRuntimeCursePools();
+  setRuntimeCursePools(GENERATED_CURSE_POOLS);
+}
+
 function buildWorkingNamePools(namePools) {
   const pools = normalizeGeneratedNamePools(namePools || {});
   return {
@@ -568,7 +574,7 @@ function getEff() {
 
 function getPlayerContext() {
   const p = G.player;
-  const chronicleContext = (G.llmChronicle || '').slice(-30000);
+  const chronicleContext = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n').slice(-30000);
   let ctx = '';
   if (AI_CONTEXT.characterDesc) {
     ctx += `Character: ${AI_CONTEXT.characterDesc}. `;
@@ -913,7 +919,7 @@ function resolveEncounterOutcome(defaultWon) {
 }
 
 async function checkGameOver() {
-  if (G.phase.startsWith('gameover')) return true;
+  if (G.runDefeatInProgress || G.phase.startsWith('gameover')) return true;
 
   let reason = null;
   if (G.player.hp <= 0) reason = 'hp';
@@ -935,13 +941,7 @@ async function checkGameOver() {
     if (reason === 'hp') reasonText = 'You have succumbed to your wounds (0 HP).';
     else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
 
-    addLog(`<span class="danger-txt">☠ ${reasonText} You have perished in the dungeon.</span>`, 'event-loss', { focus: false });
-    const prompt = buildGameOverPrompt(reasonText, getPlayerContext());
-    await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', 'event-loss', { focus: false });
-
-    G.phase = 'gameover-loss';
-    logGameOverSummaryOnce();
-    renderUI();
+    await handleRunDefeat(reasonText, 'attrition');
     return true;
   }
   return false;
@@ -950,7 +950,7 @@ async function checkGameOver() {
 function logGameOverSummaryOnce() {
   if (!G || G.gameOverSummaryLogged) return;
   G.gameOverSummaryLogged = true;
-  addLog(`Your adventure ends here — level ${G.player.level}, ${G.turns} moves taken.`, 'event-loss', { focus: false });
+  addLog(`Adventure complete — level ${G.player.level}, ${G.turns} moves taken across ${G.runNumber || 1} run(s).`, 'event-win', { focus: false });
 }
 
 function levelUp() {
@@ -1131,8 +1131,7 @@ function generateTown() {
   };
 
   const npcs = {
-    healer: placeTownNpc('healer', 'the healer', 'H', HEALER_SERVICE_COST),
-    curseRemover: placeTownNpc('curseRemover', 'the curse remover', 'C', CURSE_REMOVER_SERVICE_COST),
+    healer: placeTownNpc('healer', 'the healer', 'H', 0),
     upgrader: placeTownNpc('upgrader', 'the upgrader', 'U', ITEM_UPGRADE_COST),
     merchant: placeTownNpc('merchant', 'the merchant', 'M'),
   };
@@ -1217,6 +1216,163 @@ function applyBossNameToGrid(grid, bossName) {
       return;
     }
   }
+}
+
+
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function setActiveNamePools(namePools) {
+  if (!namePools) {
+    ACTIVE_NAME_POOLS = null;
+    return;
+  }
+  ACTIVE_NAME_POOLS = clonePlain({
+    ...normalizeGeneratedNamePools(namePools),
+    boss: namePools.boss ? { ...namePools.boss } : undefined,
+  });
+}
+
+function consumePendingOrGenerateDungeon() {
+  if (PENDING_NAMED_GRID) {
+    const dungeonGrid = cloneGridForPlay(PENDING_NAMED_GRID);
+    PENDING_NAMED_GRID = null;
+    return dungeonGrid;
+  }
+  return generateNamedDungeonForRun();
+}
+
+function generateNamedDungeonForRun() {
+  const dungeonGrid = generateGrid();
+  if (ACTIVE_NAME_POOLS) {
+    applyNamePoolsToGrid(dungeonGrid, ACTIVE_NAME_POOLS);
+  }
+  fillDefaultNames(dungeonGrid);
+  return dungeonGrid;
+}
+
+function resetTransientRunFlags() {
+  G.pendingResolveFn = null;
+  G.canFlee = false;
+  G.encounterType = null;
+  G.fleeCooldown = false;
+}
+
+function cloneCurse(curse, permanent = Boolean(curse && curse.permanent)) {
+  return {
+    name: curse.name,
+    attribute: curse.attribute,
+    magnitude: curse.magnitude,
+    permanent,
+  };
+}
+
+function sameCurse(a, b) {
+  return Boolean(a && b && a.name === b.name && a.attribute === b.attribute && a.magnitude === b.magnitude);
+}
+
+function addPermanentCurse(curse) {
+  if (!curse) return null;
+  const permanent = cloneCurse(curse, true);
+  G.player.permanentCurses = G.player.permanentCurses || [];
+  if (!G.player.permanentCurses.some(existing => sameCurse(existing, permanent))) {
+    G.player.permanentCurses.push(permanent);
+  }
+  return permanent;
+}
+
+function choosePermanentCurseFromDefeat() {
+  const statuses = G.player.statuses || [];
+  if (!statuses.length) return null;
+  const temporary = statuses.filter(status => !status.permanent);
+  return cloneCurse(pick(temporary.length ? temporary : statuses), true);
+}
+
+function resetStatusesToPermanentCurses() {
+  G.player.permanentCurses = G.player.permanentCurses || [];
+  G.player.statuses = G.player.permanentCurses.map(curse => cloneCurse(curse, true));
+}
+
+function stripHtml(value) {
+  const div = document.createElement('div');
+  div.innerHTML = String(value || '');
+  return div.textContent || div.innerText || '';
+}
+
+function fallbackStorySummary(defeatDetails, permanentCurse) {
+  const previous = G.storySummary ? `${G.storySummary} ` : '';
+  const curseText = permanentCurse ? ` A curse remains permanent: ${permanentCurse.name}.` : '';
+  const chronicle = (G.currentRunChronicle || G.llmChronicle || '').replace(/\s+/g, ' ').trim();
+  const recent = chronicle ? ` Recent events: ${chronicle.slice(-700)}` : '';
+  return `${previous}Run ${defeatDetails.runNumber} ended after ${defeatDetails.reasonText}.${curseText}${recent}`.slice(-1800).trim();
+}
+
+async function summarizeStoryAfterDefeat(defeatDetails, permanentCurse) {
+  const previousSummary = G.storySummary || '';
+  const chronicle = G.currentRunChronicle || G.llmChronicle || '';
+  let summary = null;
+  try {
+    const { apiKey } = getApiFromDom();
+    if (apiKey) {
+      summary = await chatCompletion(
+        buildStorySummaryPrompt(previousSummary, chronicle, defeatDetails, permanentCurse),
+        { label: 'storySummary' },
+      );
+    }
+  } catch (err) {
+    console.error('Story summary error:', err);
+  }
+  G.storySummary = String(summary || fallbackStorySummary(defeatDetails, permanentCurse)).trim();
+  G.llmChronicle = G.storySummary;
+  G.currentRunChronicle = '';
+}
+
+async function handleRunDefeat(reasonText, defeatSource = 'dungeon') {
+  if (G.runDefeatInProgress) return true;
+  G.runDefeatInProgress = true;
+  G.phase = 'loading';
+  resetTransientRunFlags();
+  renderInputPanel();
+
+  const runNumber = G.runNumber || 1;
+  const selectedCurse = choosePermanentCurseFromDefeat();
+  const permanentCurse = selectedCurse ? addPermanentCurse(selectedCurse) : null;
+  const defeatDetails = { reasonText, defeatSource, runNumber, permanentCurse };
+  G.lastDefeat = defeatDetails;
+
+  addLog(`<span class="danger-txt">☠ ${reasonText} Run ${runNumber} is lost.</span>`, 'event-loss', { focus: false });
+  await streamNarrationLog(
+    buildRunDefeatPrompt(reasonText, getPlayerContext()),
+    '<span class="info-txt">The narrator is thinking...</span>',
+    'event-loss',
+    { focus: false },
+  );
+
+  resetStatusesToPermanentCurses();
+  G.player.hp = PLAYER_MAX_HP;
+  G.betweenRuns = true;
+  G.currentLocation = 'town';
+  G.phase = 'loading';
+  const town = G.locations.town;
+  town.pos = { x: town.grid.start.x, y: town.grid.start.y };
+
+  await summarizeStoryAfterDefeat(defeatDetails, permanentCurse);
+  await streamNarrationLog(
+    buildReturnToTownPrompt(defeatDetails, getPlayerContext()),
+    '<span class="info-txt">The narrator is describing your return...</span>',
+    'event-loss',
+  );
+
+  const curseText = permanentCurse
+    ? ` One curse becomes permanent: <em>${permanentCurse.name}</em> (${attrLabel(permanentCurse.attribute)} ${permanentCurse.magnitude}).`
+    : ' No curse becomes permanent.';
+  addLog(`<span class="info-txt">You awaken in town at full HP.${curseText} Your coins and items remain with you.</span>`, 'event-neutral');
+
+  G.phase = 'playing';
+  G.runDefeatInProgress = false;
+  renderUI();
+  return true;
 }
 
 function pause(announceFn, resolveFn, canFlee = false, type = 'enemy') {
@@ -1480,9 +1636,7 @@ async function resolveBoss(data) {
     const narration = await streamNarrationLog(prompt, '<span class="info-txt">The narrator is thinking...</span>', won ? 'event-win' : 'event-loss');
     addLog(mechText, won ? 'event-win' : 'event-loss', { focus: !narration });
     if (!won) {
-      G.phase = 'gameover-loss';
-      addLog(`<span class="danger-txt">☠ The boss has ended your run.</span>`, 'event-loss', { focus: false });
-      logGameOverSummaryOnce();
+      await handleRunDefeat(`The boss ${data.name} defeated you during the ${stage.label} trial.`, 'boss');
       return;
     }
   }
@@ -1519,10 +1673,6 @@ async function startTownNpc(data) {
     await visitHealer(data);
     return;
   }
-  if (data.role === 'curseRemover') {
-    await visitCurseRemover(data);
-    return;
-  }
   if (data.role === 'upgrader') {
     await visitUpgrader(data);
     return;
@@ -1537,40 +1687,12 @@ async function startTownNpc(data) {
 }
 
 async function visitHealer(data) {
-  if (!payForTownService(data)) return;
   G.phase = 'loading';
   renderInputPanel();
-  const maxHp = PLAYER_MAX_HP;
-  const previousHp = G.player.hp;
-  G.player.hp = maxHp;
 
-  const fallbackText = previousHp < maxHp
-    ? `<span class="good-txt">${data.name} restores your HP to full for ${data.serviceCost} coins.</span>`
-    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and says your wounds are already healed.</span>`;
-
-  const prompt = buildHealerDialoguePrompt(data, previousHp, maxHp, getPlayerContext());
+  const prompt = buildHealerDialoguePrompt(data, getPlayerContext(), G.lastDefeat);
   const narration = await streamNarrationLog(prompt, '<span class="info-txt">The healer is speaking...</span>', 'event-npc');
-  addLog(fallbackText, 'event-neutral', { focus: !narration });
-  if (previousHp < maxHp) await refreshPhysicalDescription(`Town healer restored HP from ${previousHp} to ${maxHp}.`);
-  G.phase = 'playing';
-  renderUI();
-}
-
-async function visitCurseRemover(data) {
-  if (!payForTownService(data)) return;
-  G.phase = 'loading';
-  renderInputPanel();
-  const removed = G.player.statuses.length ? G.player.statuses.shift() : null;
-  if (removed) returnCurseToPool(removed);
-
-  const fallbackText = removed
-    ? `<span class="good-txt">${data.name} removes <em>${removed.name}</em> for ${data.serviceCost} coins.</span>`
-    : `<span class="info-txt">${data.name} accepts ${data.serviceCost} coins and finds no curses to remove.</span>`;
-
-  const prompt = buildCurseRemoverDialoguePrompt(data, removed, getPlayerContext());
-  const narration = await streamNarrationLog(prompt, '<span class="info-txt">The curse remover is speaking...</span>', 'event-npc');
-  addLog(fallbackText, 'event-neutral', { focus: !narration });
-  if (removed) await refreshPhysicalDescription(`Town curse remover removed curse: ${removed.name}.`);
+  addLog(`<span class="info-txt">${data.name} watches over your resurrection, but offers no paid healing or curse removal.</span>`, 'event-neutral', { focus: !narration });
   G.phase = 'playing';
   renderUI();
 }
@@ -1713,6 +1835,7 @@ function movePlayerInDungeon(dir) {
 
   setCurrentPos(np);
   G.turns++;
+  G.runTurns = (G.runTurns || 0) + 1;
 
   const cell = grid.cells[np.y][np.x];
 
@@ -1782,27 +1905,43 @@ function movePlayerInTown(dir) {
 }
 
 function enterTown() {
+  if (!G.betweenRuns) {
+    addLog(`<span class="info-txt">The way back to town is lost until this run ends.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
   if (G.currentLocation !== 'dungeon') return;
-  respawnFailedDungeonEncounters();
   G.currentLocation = 'town';
   G.phase = 'playing';
-  G.pendingResolveFn = null;
-  G.canFlee = false;
+  resetTransientRunFlags();
   const town = G.locations.town;
   town.pos = { x: town.grid.start.x, y: town.grid.start.y };
-  addLog(`<span class="info-txt">You leave the dungeon entrance and return to town.</span>`, 'event-neutral');
   renderUI();
 }
 
 function enterDungeon() {
   if (G.currentLocation !== 'town') return;
+  if (!G.betweenRuns) {
+    addLog(`<span class="info-txt">You are already committed to the current run.</span>`, 'event-neutral');
+    renderUI();
+    return;
+  }
+
+  resetAvailableCursePoolsForRun();
+  const dungeonGrid = generateNamedDungeonForRun();
+  G.locations.dungeon = {
+    grid: dungeonGrid,
+    pos: { x: dungeonGrid.start.x, y: dungeonGrid.start.y },
+  };
   G.currentLocation = 'dungeon';
   G.phase = 'playing';
-  G.pendingResolveFn = null;
-  G.canFlee = false;
-  const dungeon = G.locations.dungeon;
-  dungeon.pos = { x: dungeon.grid.start.x, y: dungeon.grid.start.y };
-  addLog(`<span class="info-txt">You descend through the dungeon entrance.</span>`, 'event-neutral');
+  G.betweenRuns = false;
+  G.runNumber = (G.runNumber || 1) + 1;
+  G.runTurns = 0;
+  G.currentRunChronicle = '';
+  resetStatusesToPermanentCurses();
+  resetTransientRunFlags();
+  addLog(`<span class="info-txt">Run ${G.runNumber} begins. The dungeon has shifted into a new shape.</span>`, 'event-neutral');
   renderUI();
 }
 
@@ -1832,23 +1971,26 @@ async function useCurseClearItem(index) {
   if (!item || item.type !== 'curseClear') return;
 
   const curses = G.player.statuses;
-  if (!curses.length) {
-    addLog(`<span class="info-txt">You have no curses for <em>${item.name}</em> to remove.</span>`, 'event-neutral');
+  const removable = curses
+    .map((curse, index) => ({ curse, index }))
+    .filter(({ curse }) => !curse.permanent);
+  if (!removable.length) {
+    addLog(`<span class="info-txt">You have no temporary curses for <em>${item.name}</em> to remove. Permanent curses cannot be cleared.</span>`, 'event-neutral');
     renderUI();
     return;
   }
 
-  const choices = curses.map((s, i) => `${i + 1}. ${s.name} (${attrLabel(s.attribute)} ${s.magnitude})`).join('\n');
+  const choices = removable.map(({ curse }, i) => `${i + 1}. ${curse.name} (${attrLabel(curse.attribute)} ${curse.magnitude})`).join('\n');
   const raw = prompt(`Choose a curse to remove with ${item.name}:\n${choices}`, '1');
   if (raw == null) return;
   const curseIndex = Number(raw) - 1;
-  if (!Number.isInteger(curseIndex) || curseIndex < 0 || curseIndex >= curses.length) {
+  if (!Number.isInteger(curseIndex) || curseIndex < 0 || curseIndex >= removable.length) {
     addLog(`<span class="info-txt">No curse was removed.</span>`, 'event-neutral');
     renderUI();
     return;
   }
 
-  const removed = curses.splice(curseIndex, 1)[0];
+  const removed = curses.splice(removable[curseIndex].index, 1)[0];
   returnCurseToPool(removed);
   G.player.inventory.splice(index, 1);
   addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');
@@ -1996,12 +2138,12 @@ function toggleChronicleHistory() {
 }
 
 async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral', options = {}) {
-  const chronicleContext = (G.llmChronicle || '').slice(-30000);
+  const chronicleContext = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n').slice(-30000);
   const shouldFocus = options.focus !== false;
   const el = addLog(placeholderHtml, cls, { focus: shouldFocus });
   if (shouldFocus) focusChronicleEntry(el);
   let text = '';
-  const promptWithContext = `the story so far: ${chronicleContext}. Current event:`+ prompt
+  const promptWithContext = `The story so far: ${chronicleContext || 'This is the beginning of the adventure.'}. Current event: ${prompt}`;
   const narration = await generateNarration(AI_CONTEXT, promptWithContext, {
     onChunk: (chunk, fullText) => {
       text = fullText || (text + chunk);
@@ -2018,10 +2160,12 @@ async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-t
   setChroniclePlainText(el, narration);
   if (shouldFocus) focusChronicleEntry(el);
   if (narration) {
-  G.llmChronicle = G.llmChronicle
-    ? `${G.llmChronicle}\n\n${narration.trim()}`
-    : narration.trim();
-}
+    const trimmed = narration.trim();
+    G.currentRunChronicle = G.currentRunChronicle
+      ? `${G.currentRunChronicle}\n\n${trimmed}`
+      : trimmed;
+    G.llmChronicle = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n');
+  }
   return narration;
 }
 
@@ -2030,8 +2174,12 @@ function renderStatusPanel() {
   const eff = getEff();
 
   const curseHtml = p.statuses.length
-    ? p.statuses.map(s => `<span class="status-tag">${s.name}: ${attrLabel(s.attribute)} ${s.magnitude}</span>`).join('')
+    ? p.statuses.map(s => `<span class="status-tag">${s.name}: ${attrLabel(s.attribute)} ${s.magnitude}${s.permanent ? ' · Permanent' : ''}</span>`).join('')
     : '<span class="empty-note">None</span>';
+
+  const runHtml = G.betweenRuns
+    ? `Between runs · Next run: ${(G.runNumber || 1) + 1}`
+    : `Run ${G.runNumber || 1}`;
 
   const equippedItems = p.inventory.filter(item => item.type === 'buff' && item.equipped);
   const activeHtml = equippedItems.length
@@ -2065,6 +2213,7 @@ function renderStatusPanel() {
   }).join('');
 
   document.getElementById('status-content').innerHTML = `
+    <div class="runtime-api-note" style="margin-bottom:8px;">${runHtml}</div>
     <div class="vitals-row">
       <div class="heart-row" aria-label="HP ${p.hp} of ${PLAYER_MAX_HP}">${heartsHtml}</div>
       <div class="coins-display" aria-label="Coins ${p.money}">
@@ -2125,19 +2274,16 @@ function renderInputPanel() {
   }
 
   if (G.phase === 'playing') {
-    setTitle('');
+    setTitle(G.betweenRuns ? 'Town respite' : `Run ${G.runNumber || 1}`);
     const cell = getCurrentCell();
     const actionButtons = [];
-    if (G.currentLocation === 'dungeon' && cell && cell.type === 'start') {
-      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterTown()">Exit Dungeon</button>`);
-    }
-    if (G.currentLocation === 'town' && cell && cell.type === 'town-gate') {
-   
-      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterDungeon()">Enter Dungeon</button>`);
+    if (G.currentLocation === 'town' && cell && cell.type === 'town-gate' && G.betweenRuns) {
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); enterDungeon()">Begin Run ${(G.runNumber || 1) + 1}</button>`);
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
-      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">Talk (${cost} coins)</button>`);
+      const label = cost > 0 ? `Talk (${cost} coins)` : 'Talk';
+      actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">${label}</button>`);
     }
     buttons.innerHTML = `<div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;
     if (actionButtons.length) buttons.innerHTML += actionButtons.join('');
@@ -2195,7 +2341,7 @@ function renderInputPanel() {
 
   if (G.phase === 'gameover-loss') {
     setTitle('✦ Defeated');
-    buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Try Again</button>`;
+    buttons.innerHTML = `<button class="btn btn-restart" onclick="location.reload()">Restart Adventure</button>`;
     return;
   }
 }
@@ -2294,6 +2440,7 @@ async function generateTheme() {
     const npcNames = JSON.parse(npcNamesRaw);
     const curseNames = JSON.parse(curseNamesRaw);
     const itemNames = JSON.parse(itemNamesRaw);
+    const bossNameJson = JSON.parse(bossNameRaw);
     const namePools = normalizeGeneratedNamePools({
       ...enemyNames,
       ...npcNames,
@@ -2301,9 +2448,11 @@ async function generateTheme() {
       ...itemNames,
     });
 
+    if (bossNameJson && bossNameJson.boss) namePools.boss = bossNameJson.boss;
     applyNamePoolsToGrid(request.grid, namePools);
     applyBossNameToGrid(request.grid, bossNameJson && bossNameJson.boss && bossNameJson.boss.name);
     setRuntimeCursePools(namePools.curses);
+    setActiveNamePools(namePools);
     fillDefaultNames(request.grid);
     PENDING_NAMED_GRID = request.grid;
     NAMING_PROMPT_CACHE = null;
@@ -2361,9 +2510,11 @@ function skipTheme() {
         }
         applyNamePoolsToGrid(PENDING_NAMED_GRID, parsed.namePools);
         setRuntimeCursePools(normalizeGeneratedNamePools(parsed.namePools).curses);
+        setActiveNamePools(parsed.namePools);
         fillDefaultNames(PENDING_NAMED_GRID);
       } else {
         PENDING_NAMED_GRID = null;
+        setActiveNamePools(null);
         if (parsed.enemies) ENEMY_NAMES = parsed.enemies;
         if (parsed.npcs) NPC_NAMES = parsed.npcs;
         if (parsed.items) {

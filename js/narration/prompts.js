@@ -11,21 +11,43 @@ function promptAttrDisplay(attr) {
 }
 
 function buildNarratorFullPrompt(aiContext, promptText) {
-  let themeContext = `The theme is "${aiContext.theme}".`;
-
-let fullPrompt = `You are the narrator of an adventure story. ${themeContext} 
-The narration must be restricted to one or two paragraphs, in order to avoid making it too long. do not mention numbers and stats, so the immersion is not broken.
-The narration must be restricted to one or two paragraphs, in order to avoid making it too long. do not mention numbers and stats, so the immersion is not broken.always narrate in third person.
+  const themeContext = `The theme is "${aiContext.theme || 'unspecified'}".`;
+  return `You are the narrator of an adventure story. ${themeContext}
+The narration must be restricted to one or two paragraphs in order to avoid making it too long. Do not mention numbers and stats, so the immersion is not broken. Always narrate in third person.
 ${promptText}`;
-console.log(fullPrompt);
-return fullPrompt
 }
 
-function buildGameOverPrompt(reasonText, playerContext) {
-  return `The player has been defeated
+function buildRunDefeatPrompt(reasonText, playerContext) {
+  return `The player has been defeated during the current dungeon run, but this is not the end of the game.
+Defeat reason: ${reasonText}
 Player state: ${playerContext}
-Describe the defeat and ultimate fate of the adventurer.`;
-Describe the defeat and ultimate fate of the adventurer. provide a short epilogue`;
+Describe the immediate defeat. Do not write a final epilogue and do not imply the adventure is over forever.`;
+}
+
+function buildReturnToTownPrompt(defeatDetails, playerContext) {
+  const permanentCurseText = defeatDetails.permanentCurse
+    ? `${defeatDetails.permanentCurse.name} (${promptAttrDisplay(defeatDetails.permanentCurse.attribute)} ${defeatDetails.permanentCurse.magnitude}) was not removed, and has become permanent`
+    : 'no curse became permanent';
+   const removedCursesNames = defeatDetails.removedCurses.map(c => c.name).join(", ");
+  const prompt = `The player returns to town after losing dungeon run ${defeatDetails.runNumber}.
+Describe the player being returned to town by rescue, magic, fate, or another theme-appropriate means. the Healer NPC has found them, describe the removal of the ailments ${removedCursesNames}, but mention how ${permanentCurseText}. This is a transition into the next run, not a final ending. Player state after resurrection: ${playerContext}`;
+console.log(prompt);
+return prompt;
+}
+
+function buildStorySummaryPrompt(previousSummary, chronicle, defeatDetails, permanentCurse) {
+  const permanentCurseText = permanentCurse
+    ? `${permanentCurse.name} (${promptAttrDisplay(permanentCurse.attribute)} ${permanentCurse.magnitude})`
+    : 'none';
+  return `Summarize the ongoing adventure for future narration context.
+Keep the summary concise: one paragraph, no more than 180 words.
+Preserve important continuity: protagonist identity, theme, notable events, items, permanent curses, and the latest defeat.
+Previous summary: ${previousSummary || 'none'}
+Latest run number: ${defeatDetails.runNumber}
+Latest defeat reason: ${defeatDetails.reasonText}
+New permanent curse: ${permanentCurseText}
+Latest chronicle: ${chronicle || 'none'}
+Return only the summary paragraph.`;
 }
 
 function buildBossStartPrompt(data, playerContext) {
@@ -67,11 +89,6 @@ function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
   const instructionText = won
     ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
     : `Describe the player losing the encounter without dying. Describe how the enemy imposed this curse onto the player: ${curseText}`;
-    : 'The player LOST. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.';
-
-  const instructionText = won
-    ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
-    : `Describe the player losing the encounter without dying. Describe how the enemy imposed onto the player: ${curseText}`;
 
   return `The player engaged the enemy: ${data.name}.
 Outcome: ${outcomeText}
@@ -96,27 +113,30 @@ Describe the start of the encounter, before the player chooses to investigate or
 
 function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
   const rewardText = promptRewardLabel(reward);
+  const outcome = won
+    ? `The player avoided a trap and claimed ${rewardText}.`
+    : `${rewardText} was enchanted with a trap and imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.`;
   return `The player investigated ${rewardText}.
 Player state: ${playerContext}
-Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and cursed the player with ${s.name} The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
-Outcome: The player ${won ? `avoided a trap and claimed ${rewardText}` : `${rewardText} was enchanted with a trap, and imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.`}.
-Describe the resolution of the encounter.  Do not describe events not related to the outcome of the encounter. do not give player their options for actions, you are just the story narrator`;
+Outcome: ${outcome}
+Describe the resolution of the encounter. Do not describe events not related to the outcome of the encounter. Do not give player their options for actions; you are just the story narrator.`;
 }
 
 function buildNpcStartPrompt(data, diffCat, playerContext) {
   return `The player has encountered an NPC: ${data.name} (Persuasion Difficulty: ${diffCat}).
 Player state: ${playerContext}
-Describe the start of the encounter, before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
-the NPC will ask something of the player, fitting for the theme. Describe the start of the encounter, before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
+The NPC will ask something of the player, fitting for the theme. Describe the start of the encounter before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
 }
 
 function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
   const rewardText = promptRewardLabel(reward);
+  const outcome = won
+    ? `The player succeeded and received a gift: ${rewardText}.`
+    : `The player failed to sway or satisfy the NPC. The NPC imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed, and will continue the adventure in this state.`;
   return `The player talked to the NPC: ${data.name}.
 Player state: ${playerContext}
-Outcome: The player ${won ? `WON and received a gift: ${rewardText}` : `LOST and angered the NPC, and is cursed with ${s.name}, The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.`}.
-Outcome: The player ${won ? `succeeded and received a gift: ${rewardText}` : `failed to sway or satisfy the NPC. the NPC imposed ${s.name} upon the player, The player is not completely defeated, but has taken damage and is changed, and will continue the adventure in this state.`}.
-Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC, and take into account any speech modifying ailments or curses accrued by the player. Do not describe events not related to the outcome of the encounter. do not give player their options for actions, you are just the story narrator`;
+Outcome: ${outcome}
+Describe the resolution of the encounter. Include a short dialogue exchange between player and NPC, always start with the player character addressing the NPC, and take into account any speech modifying ailments or curses accrued by the player. Do not describe events not related to the outcome of the encounter. Do not give player their options for actions; you are just the story narrator.`;
 }
 
 function buildFloorItemPrompt(item, playerContext) {
@@ -129,26 +149,16 @@ function buildTownNpcDetailText(data) {
   return data && data.details ? `Town NPC details: ${data.details}` : 'Town NPC details: unspecified';
 }
 
-function buildHealerDialoguePrompt(data, previousHp, maxHp, playerContext) {
+function buildHealerDialoguePrompt(data, playerContext, lastDefeat) {
+  const defeatText = lastDefeat
+    ? `The player recently returned from run ${lastDefeat.runNumber} after this defeat, they were healed by the healer NPC, and had some of their curses removed.`
+    : 'The player is between dungeon runs.';
   return `The player visited a town healer: ${data.name}.
 ${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
-Service: The healer restores HP.
-Service cost paid: ${data.serviceCost || 0} coins
-Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the healing, and not invent unrelated events.`;
-}
-
-function buildCurseRemoverDialoguePrompt(data, removedCurse, playerContext) {
-  const curseText = removedCurse
-    ? `${removedCurse.name} (${promptAttrDisplay(removedCurse.attribute)} ${removedCurse.magnitude})`
-    : 'none';
-  return `The player visited a town curse remover: ${data.name}.
-${buildTownNpcDetailText(data)}
-Player state: ${playerContext}
-Service: The curse remover removes one curse at a time.
-Service cost paid: ${data.serviceCost || 0} coins
-Curse removed: ${curseText}
-Write a short curse-removal dialogue exchange. The NPC should speak in a way that fits the theme, acknowledge the removed curse if any, and not invent unrelated events.`;
+Context: ${defeatText}
+Service: The healer does not sell healing or remove curses anymore; the healer only offers resurrection dialogue and encouragement between runs.
+Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the player's return to town, and not invent unrelated services.`;
 }
 
 function buildUpgraderDialoguePrompt(data, item, previousLevel, playerContext) {
@@ -191,14 +201,13 @@ Latest change: ${data.change}
 Equipped items: ${equippedItems}
 Curses currently affecting the player: ${curses}
 
-Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible.`;
-Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible. use objective concise language, not literary flair.`;
+Return only the updated physical description, in one concise paragraph. Describe visible body, clothing, equipment, posture, and obvious curse effects. Include only equipped items, not unequipped inventory. Keep continuity with the previous description where possible. Use objective concise language, not literary flair.`;
 }
 
 function buildNameGeneratorContext(inputs, detailKind) {
   const setting = inputs.setting || 'fantasy';
   let context = `Create names for a ${setting} setting.`;
-  if (inputs.themeDetails) context += ` Theme details: ${inputs.themeDetails}.`;
+ // if (inputs.themeDetails) context += ` Theme details: ${inputs.themeDetails}.`;
   if (detailKind !== 'item' && inputs.charDesc) context += ` Character context: ${inputs.charDesc}.`;
 
   if (detailKind === 'enemy' && inputs.enemyDetails) {

@@ -5,6 +5,9 @@ const LS_API_PRESETS = 'gridCrawler_apiPresets';
 const LS_THEME_LAST = 'gridCrawler_themeLastSession';
 const LS_THEME_PRESETS = 'gridCrawler_themePresets';
 
+let __themePresetCache = null;
+let __themeLastCache = null;
+
 function presetsSafeParse(raw, fallback) {
   try {
     return JSON.parse(raw);
@@ -47,11 +50,17 @@ function persistApiLastSession() {
 }
 
 function loadThemePresetList() {
-  return presetsSafeParse(localStorage.getItem(LS_THEME_PRESETS) || '[]', []);
+  if (Array.isArray(__themePresetCache)) return __themePresetCache;
+  __themePresetCache = presetsSafeParse(localStorage.getItem(LS_THEME_PRESETS) || '[]', []);
+  return __themePresetCache;
 }
 
 function saveThemePresetList(arr) {
-  localStorage.setItem(LS_THEME_PRESETS, JSON.stringify(arr));
+  __themePresetCache = Array.isArray(arr) ? arr : [];
+  try {
+    localStorage.setItem(LS_THEME_PRESETS, JSON.stringify(__themePresetCache));
+  } catch (_) { /* quota / privacy mode */ }
+  queueRemoteThemeSave();
 }
 
 function getCurrentThemeFields() {
@@ -81,9 +90,20 @@ function applyThemeFields(o) {
 }
 
 function persistThemeLastSession() {
+  __themeLastCache = getCurrentThemeFields();
   try {
-    localStorage.setItem(LS_THEME_LAST, JSON.stringify(getCurrentThemeFields()));
+    localStorage.setItem(LS_THEME_LAST, JSON.stringify(__themeLastCache));
   } catch (_) { /* quota / privacy mode */ }
+  queueRemoteThemeSave();
+}
+
+function queueRemoteThemeSave() {
+  if (!window.GC_THEME_STORE || typeof window.GC_THEME_STORE.queueSave !== 'function') return;
+  // Only theme settings: story presets + last session theme fields.
+  window.GC_THEME_STORE.queueSave({
+    themeLast: __themeLastCache || getCurrentThemeFields(),
+    themePresets: loadThemePresetList(),
+  });
 }
 
 function refreshApiPresetSelect() {
@@ -274,7 +294,7 @@ function deleteSelectedThemePreset() {
   refreshThemePresetSelect();
 }
 
-function restoreSessionsFromStorage() {
+async function restoreSessionsFromStorage() {
   const apiRaw = localStorage.getItem(LS_API_LAST);
   if (apiRaw) {
     const o = presetsSafeParse(apiRaw, null);
@@ -284,10 +304,35 @@ function restoreSessionsFromStorage() {
   if (themeRaw) {
     const o = presetsSafeParse(themeRaw, null);
     if (o) applyThemeFields(o);
+    __themeLastCache = o;
   }
+  const themePresetsRaw = localStorage.getItem(LS_THEME_PRESETS);
+  if (themePresetsRaw) __themePresetCache = presetsSafeParse(themePresetsRaw, []);
+
   refreshApiPresetSelect();
   refreshThemePresetSelect();
   syncGameplayApiControlsFromFields();
+
+  // Then, if available, pull theme settings from Supabase and override local.
+  if (window.GC_THEME_STORE && typeof window.GC_THEME_STORE.loadThemeState === 'function') {
+    try {
+      const remote = await window.GC_THEME_STORE.loadThemeState();
+      if (remote) {
+        if (remote.themeLast) {
+          __themeLastCache = remote.themeLast;
+          applyThemeFields(remote.themeLast);
+          try { localStorage.setItem(LS_THEME_LAST, JSON.stringify(remote.themeLast)); } catch (_) {}
+        }
+        if (Array.isArray(remote.themePresets)) {
+          __themePresetCache = remote.themePresets;
+          try { localStorage.setItem(LS_THEME_PRESETS, JSON.stringify(remote.themePresets)); } catch (_) {}
+          refreshThemePresetSelect();
+        }
+      }
+    } catch (_) {
+      // ignore; local storage remains available
+    }
+  }
 }
 
 function wirePresetAutosave() {
@@ -323,6 +368,7 @@ function wirePresetAutosave() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // async (Supabase theme sync) but safe to fire-and-forget
   restoreSessionsFromStorage();
   wirePresetAutosave();
 });

@@ -1709,27 +1709,173 @@ async function visitHealer(data) {
 }
 
 function chooseInventoryIndex(items, label, formatter) {
-  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
-  const raw = prompt(`${label}:\n${choices}`, '1');
-  if (raw == null) return -1;
-  const choiceIndex = Number(raw) - 1;
-  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length) return -1;
-  return items[choiceIndex].index;
+  // Deprecated: native `prompt()` breaks backspace/delete on some mobile browsers.
+  // Use `chooseInventoryIndexModal(...)` instead (async).
+  console.warn('chooseInventoryIndex is deprecated; use chooseInventoryIndexModal instead.');
+  return -1;
 }
 
 function chooseInventoryIndexes(items, label, formatter) {
-  const choices = items.map(({ item, index }, i) => `${i + 1}. ${item.name} (${formatter(item)})`).join('\n');
-  const raw = prompt(`${label}:\n${choices}\n\nEnter one or more numbers separated by commas.`, '1');
-  if (raw == null) return [];
-  const picked = [];
-  const seen = new Set();
-  for (const part of String(raw).split(',')) {
-    const choiceIndex = Number(part.trim()) - 1;
-    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= items.length || seen.has(choiceIndex)) continue;
-    seen.add(choiceIndex);
-    picked.push(items[choiceIndex].index);
-  }
-  return picked;
+  // Deprecated: native `prompt()` breaks backspace/delete on some mobile browsers.
+  // Use `chooseInventoryIndexesModal(...)` instead (async).
+  console.warn('chooseInventoryIndexes is deprecated; use chooseInventoryIndexesModal instead.');
+  return [];
+}
+
+function ensureGcActionModalStyles() {
+  if (document.getElementById('gc-action-modal-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'gc-action-modal-styles';
+  style.textContent = `
+    .gc-action-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+    .gc-action-modal{width:min(680px,100%);max-height:min(82vh,720px);overflow:auto;background:var(--panel,#000410);border:1px solid var(--border,#1a3250);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.8);padding:14px}
+    .gc-action-modal h3{margin:0 0 8px 0;font-size:1.05rem;color:var(--gold,#ffbe1a);letter-spacing:.5px;text-transform:uppercase}
+    .gc-action-modal p{margin:0 0 10px 0;color:var(--text,#eaeaff);opacity:.95}
+    .gc-action-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .gc-action-row{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid rgba(26,50,80,.65);border-radius:12px;background:rgba(255,255,255,.03)}
+    .gc-action-row input{margin-top:3px;flex:0 0 auto}
+    .gc-action-row label{flex:1 1 auto;cursor:pointer}
+    .gc-action-title{font-weight:700;color:var(--text,#eaeaff)}
+    .gc-action-sub{opacity:.85;color:var(--text-dim,#627b9b);font-size:.92rem;margin-top:2px}
+    .gc-action-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+    .gc-action-actions .btn{margin:0}
+  `;
+  document.head.appendChild(style);
+}
+
+function escapeHtml(value) {
+  const div = document.createElement('div');
+  div.textContent = value == null ? '' : String(value);
+  return div.innerHTML;
+}
+
+function gcModalSelect({ title, message, options, multiple = false, confirmText, cancelText } = {}) {
+  ensureGcActionModalStyles();
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'gc-action-backdrop';
+    const modal = document.createElement('div');
+    modal.className = 'gc-action-modal';
+
+    const safeTitle = escapeHtml(title || (multiple ? 'Choose Items' : 'Choose One'));
+    const safeMsg = escapeHtml(message || '');
+    const okText = escapeHtml(confirmText || (multiple ? 'Confirm' : 'Choose'));
+    const noText = escapeHtml(cancelText || 'Cancel');
+
+    const inputType = multiple ? 'checkbox' : 'radio';
+    const groupName = `gcModalSel_${Math.random().toString(36).slice(2)}`;
+
+    const rowsHtml = (options || []).map((opt, idx) => {
+      const id = `${groupName}_${idx}`;
+      const titleHtml = escapeHtml(opt.title || opt.label || String(opt.value));
+      const subHtml = opt.subtitle ? `<div class="gc-action-sub">${escapeHtml(opt.subtitle)}</div>` : '';
+      return `
+        <div class="gc-action-row">
+          <input id="${id}" type="${inputType}" name="${groupName}" value="${escapeHtml(String(opt.value))}">
+          <label for="${id}">
+            <div class="gc-action-title">${titleHtml}</div>
+            ${subHtml}
+          </label>
+        </div>
+      `;
+    }).join('');
+
+    modal.innerHTML = `
+      <h3>${safeTitle}</h3>
+      ${safeMsg ? `<p>${safeMsg}</p>` : ''}
+      <div class="gc-action-list">${rowsHtml}</div>
+      <div class="gc-action-actions">
+        <button type="button" class="btn btn-dir">${noText}</button>
+        <button type="button" class="btn btn-continue">${okText}</button>
+      </div>
+    `;
+
+    const [btnCancel, btnOk] = modal.querySelectorAll('.gc-action-actions button');
+
+    const cleanup = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      backdrop.remove();
+    };
+
+    const finish = (value) => {
+      cleanup();
+      resolve(value);
+    };
+
+    const getSelected = () => {
+      const inputs = Array.from(modal.querySelectorAll(`input[type="${inputType}"]`));
+      if (multiple) {
+        const selected = inputs.filter(i => i.checked).map(i => i.value);
+        return selected;
+      }
+      const one = inputs.find(i => i.checked);
+      return one ? one.value : null;
+    };
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+        return;
+      }
+      if (e.key === 'Enter') {
+        // Enter confirms selection (useful on desktop).
+        e.preventDefault();
+        btnOk.click();
+      }
+    };
+
+    btnCancel.addEventListener('click', () => finish(null));
+    btnOk.addEventListener('click', () => finish(getSelected()));
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) finish(null);
+    });
+
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    document.addEventListener('keydown', onKeyDown, true);
+
+    // Autofocus first option for accessibility.
+    setTimeout(() => {
+      const first = modal.querySelector('input');
+      if (first) first.focus({ preventScroll: true });
+    }, 0);
+  });
+}
+
+async function chooseInventoryIndexModal(items, label, formatter, confirmText = 'Choose') {
+  const options = items.map(({ item, index }) => ({
+    value: String(index),
+    title: item.name,
+    subtitle: formatter(item),
+  }));
+  const picked = await gcModalSelect({
+    title: label || 'Choose One',
+    message: '',
+    options,
+    multiple: false,
+    confirmText,
+  });
+  if (picked == null) return -1;
+  const asNum = Number(picked);
+  return Number.isInteger(asNum) ? asNum : -1;
+}
+
+async function chooseInventoryIndexesModal(items, label, formatter, confirmText = 'Confirm') {
+  const options = items.map(({ item, index }) => ({
+    value: String(index),
+    title: item.name,
+    subtitle: formatter(item),
+  }));
+  const picked = await gcModalSelect({
+    title: label || 'Choose Items',
+    message: '',
+    options,
+    multiple: true,
+    confirmText,
+  });
+  if (!Array.isArray(picked)) return [];
+  return picked.map((v) => Number(v)).filter((n) => Number.isInteger(n));
 }
 
 async function visitUpgrader(data) {
@@ -1743,7 +1889,7 @@ async function visitUpgrader(data) {
     return;
   }
 
-  const itemIndex = chooseInventoryIndex(
+  const itemIndex = await chooseInventoryIndexModal(
     eligible,
     `Choose a status item to upgrade for ${data.serviceCost} coins`,
     itemDescription,
@@ -1781,7 +1927,7 @@ async function visitMerchant(data) {
     return;
   }
 
-  const itemIndexes = chooseInventoryIndexes(
+  const itemIndexes = await chooseInventoryIndexesModal(
     sellable,
     'Choose item(s) to sell',
     item => `${itemDescription(item)} · ${merchantItemPrice(item)} coins`,
@@ -1991,17 +2137,27 @@ async function useCurseClearItem(index) {
     return;
   }
 
-  const choices = removable.map(({ curse }, i) => `${i + 1}. ${curse.name} (${attrLabel(curse.attribute)} ${curse.magnitude})`).join('\n');
-  const raw = prompt(`Choose a curse to remove with ${item.name}:\n${choices}`, '1');
-  if (raw == null) return;
-  const curseIndex = Number(raw) - 1;
-  if (!Number.isInteger(curseIndex) || curseIndex < 0 || curseIndex >= removable.length) {
+  const options = removable.map(({ curse }, idx) => ({
+    value: String(idx),
+    title: curse.name,
+    subtitle: `${attrLabel(curse.attribute)} ${curse.magnitude}`,
+  }));
+  const picked = await gcModalSelect({
+    title: 'Remove a Curse',
+    message: `Choose a curse to remove with ${item.name}:`,
+    options,
+    multiple: false,
+    confirmText: 'Remove',
+  });
+  if (picked == null) return;
+  const choiceIndex = Number(picked);
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= removable.length) {
     addLog(`<span class="info-txt">No curse was removed.</span>`, 'event-neutral');
     renderUI();
     return;
   }
 
-  const removed = curses.splice(removable[curseIndex].index, 1)[0];
+  const removed = curses.splice(removable[choiceIndex].index, 1)[0];
   returnCurseToPool(removed);
   G.player.inventory.splice(index, 1);
   addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');

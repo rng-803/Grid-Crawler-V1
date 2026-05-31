@@ -8,6 +8,92 @@ const LS_THEME_PRESETS = 'gridCrawler_themePresets';
 let __themePresetCache = null;
 let __themeLastCache = null;
 
+// Mobile-safe modal prompt helpers (replaces native `prompt()` which can break backspace/delete on some mobile browsers).
+function ensureGcModalStyles() {
+  if (document.getElementById('gc-modal-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'gc-modal-styles';
+  style.textContent = `
+    .gc-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+    .gc-modal{width:min(520px,100%);max-height:min(80vh,640px);overflow:auto;background:var(--panel,#000410);border:1px solid var(--border,#1a3250);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.8);padding:14px}
+    .gc-modal h3{margin:0 0 8px 0;font-size:1.05rem;color:var(--gold,#ffbe1a);letter-spacing:.5px;text-transform:uppercase}
+    .gc-modal p{margin:0 0 10px 0;color:var(--text,#eaeaff);opacity:.95}
+    .gc-modal input,.gc-modal textarea{width:100%;background:rgba(255,255,255,.04);color:var(--text,#eaeaff);border:1px solid var(--border,#1a3250);border-radius:10px;padding:10px 10px;font-family:inherit;font-size:16px;outline:none}
+    .gc-modal textarea{min-height:90px;resize:vertical}
+    .gc-modal .gc-modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+    .gc-modal .gc-modal-actions .btn{margin:0}
+    .gc-modal .gc-modal-actions .btn.btn-continue{flex:0 0 auto}
+    .gc-modal .gc-modal-actions .btn.btn-dir{flex:0 0 auto}
+  `;
+  document.head.appendChild(style);
+}
+
+function gcModalTextPrompt({ title, message, defaultValue = '', placeholder = '' } = {}) {
+  ensureGcModalStyles();
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'gc-modal-backdrop';
+    const modal = document.createElement('div');
+    modal.className = 'gc-modal';
+    modal.innerHTML = `
+      <h3></h3>
+      <p></p>
+      <input type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="gc-modal-actions">
+        <button type="button" class="btn btn-dir">Cancel</button>
+        <button type="button" class="btn btn-continue">Save</button>
+      </div>
+    `;
+    const [h3, p, input] = modal.querySelectorAll('h3, p, input');
+    const [btnCancel, btnOk] = modal.querySelectorAll('button');
+    h3.textContent = title || 'Input';
+    p.textContent = message || '';
+    input.value = defaultValue == null ? '' : String(defaultValue);
+    input.placeholder = placeholder || '';
+
+    const cleanup = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      backdrop.remove();
+    };
+
+    const finish = (value) => {
+      cleanup();
+      resolve(value);
+    };
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        btnOk.click();
+      }
+    };
+
+    btnCancel.addEventListener('click', () => finish(null));
+    btnOk.addEventListener('click', () => {
+      const trimmed = String(input.value || '').trim();
+      finish(trimmed ? trimmed : null);
+    });
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) finish(null);
+    });
+
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    document.addEventListener('keydown', onKeyDown, true);
+
+    // iOS/Safari: delay focus to ensure keyboard + editing works reliably.
+    setTimeout(() => {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, 0);
+  });
+}
+
 function presetsSafeParse(raw, fallback) {
   try {
     return JSON.parse(raw);
@@ -207,9 +293,14 @@ function applySelectedGameplayApiPreset() {
   }
 }
 
-function saveCurrentApiPreset() {
+async function saveCurrentApiPreset() {
   const suggestion = document.getElementById('api-preset-select').value || '';
-  const nameInput = prompt('Name for this API preset:', suggestion);
+  const nameInput = await gcModalTextPrompt({
+    title: 'Save API Preset',
+    message: 'Name for this API preset:',
+    defaultValue: suggestion,
+    placeholder: 'e.g. OpenRouter · GPT-4o-mini',
+  });
   if (!nameInput || !String(nameInput).trim()) return;
   const trimmed = String(nameInput).trim();
   const fields = getCurrentApiFields();
@@ -226,10 +317,15 @@ function saveCurrentApiPreset() {
   persistApiLastSession();
 }
 
-function saveGameplayApiPreset() {
+async function saveGameplayApiPreset() {
   syncGameplayModelToApiFields();
   const suggestion = document.getElementById('game-api-preset-select').value || '';
-  const nameInput = prompt('Name for this API preset:', suggestion);
+  const nameInput = await gcModalTextPrompt({
+    title: 'Save API Preset',
+    message: 'Name for this API preset:',
+    defaultValue: suggestion,
+    placeholder: 'e.g. Narrator (cheap/fast)',
+  });
   if (!nameInput || !String(nameInput).trim()) return;
   const trimmed = String(nameInput).trim();
   const fields = getCurrentApiFields();
@@ -265,12 +361,14 @@ function applySelectedThemePreset() {
   }
 }
 
-function saveCurrentThemePreset() {
+async function saveCurrentThemePreset() {
   const suggestion = document.getElementById('theme-preset-select').value || '';
-  const nameInput = prompt(
-    'Name for this story preset (setting + theme + details + character):',
-    suggestion,
-  );
+  const nameInput = await gcModalTextPrompt({
+    title: 'Save Story Preset',
+    message: 'Name for this story preset (setting + theme + details + character):',
+    defaultValue: suggestion,
+    placeholder: 'e.g. Cyber-noir · The Drowned Megacity',
+  });
   if (!nameInput || !String(nameInput).trim()) return;
   const trimmed = String(nameInput).trim();
   const fields = getCurrentThemeFields();

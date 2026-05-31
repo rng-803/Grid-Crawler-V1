@@ -656,15 +656,8 @@ function getImagePromptFormatLabel() {
   return fmt === 'danbooru' ? 'danbooru tags' : 'structured prompt';
 }
 
-function computeAutoImagePrompt() {
-  if (!G) return '';
-  if (typeof buildImagePromptFromContext !== 'function') return '';
-  const ctx = {
-    theme: AI_CONTEXT.theme,
-    characterDesc: AI_CONTEXT.characterDesc,
-    physicalDescription: G.player && G.player.physicalDescription,
-  };
-  return buildImagePromptFromContext(ctx, typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured');
+function getImagePromptNoteDefault() {
+  return `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
 }
 
 function renderImagePrompt() {
@@ -673,13 +666,7 @@ function renderImagePrompt() {
   const textarea = document.getElementById('image-prompt-text');
   if (!container || !note || !textarea || !G) return;
 
-  const autoText = computeAutoImagePrompt();
-  if (!G.player.imagePromptText) {
-    G.player.imagePromptText = autoText;
-    G.player.imagePromptLastAuto = autoText;
-  }
-
-  note.textContent = `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
+  note.textContent = getImagePromptNoteDefault();
   textarea.value = G.player.imagePromptText || '';
 
   if (!textarea.__gcWired) {
@@ -707,13 +694,11 @@ function toggleImagePrompt() {
   button.textContent = 'Hide Image Prompt';
 }
 
-function resetImagePromptFromAppearance() {
-  if (!G) return;
-  const textarea = document.getElementById('image-prompt-text');
-  const autoText = computeAutoImagePrompt();
-  G.player.imagePromptText = autoText;
-  G.player.imagePromptLastAuto = autoText;
-  if (textarea) textarea.value = autoText;
+function getImagePromptStoryContextSlice() {
+  if (!G) return '';
+  const maxChars = typeof IMAGE_PROMPT_CONTEXT_CHARS === 'number' ? IMAGE_PROMPT_CONTEXT_CHARS : 3000;
+  const chronicleContext = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n');
+  return String(chronicleContext || '').slice(-Math.max(0, Number(maxChars) || 0));
 }
 
 async function copyImagePromptToClipboard() {
@@ -739,10 +724,66 @@ async function copyImagePromptToClipboard() {
     }
     if (note) note.textContent = `Copied (${getImagePromptFormatLabel()})`;
     setTimeout(() => {
-      if (note) note.textContent = `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
+      if (note) note.textContent = getImagePromptNoteDefault();
     }, 1200);
   } catch (_) {
     if (note) note.textContent = 'Copy failed (browser permission)';
+  }
+}
+
+async function generateImagePromptFromLLM() {
+  const textarea = document.getElementById('image-prompt-text');
+  const note = document.getElementById('image-prompt-format-note');
+  if (!G || !textarea) return;
+
+  if (typeof buildCharacterContextForImagePrompt !== 'function' || typeof buildImagePromptGenerationPrompt !== 'function') {
+    if (note) note.textContent = 'Image prompt template not loaded.';
+    return;
+  }
+  if (typeof chatCompletion !== 'function') {
+    if (note) note.textContent = 'Chat API client not loaded.';
+    return;
+  }
+
+  const p = G.player;
+  const equippedItems = getEquippedItems().map(item => ({
+    name: item.name,
+    desc: itemDescription(item),
+  }));
+  const curses = (p.statuses || []).map(s => ({ ...s }));
+
+  const characterContext = buildCharacterContextForImagePrompt({ equippedItems, curses });
+  const storyContext = getImagePromptStoryContextSlice();
+  const previousDescription = p.physicalDescription || AI_CONTEXT.characterDesc || '';
+  const maxTokens = typeof IMAGE_PROMPT_MAX_TOKENS === 'number' ? IMAGE_PROMPT_MAX_TOKENS : 350;
+
+  const prompt = buildImagePromptGenerationPrompt({
+    format: typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured',
+    storyContext,
+    characterContext,
+    previousDescription,
+    maxTokens,
+  });
+
+  try {
+    if (note) note.textContent = 'Generating prompt...';
+    textarea.disabled = true;
+    const result = await chatCompletion(prompt, { label: 'imagePrompt', maxTokens });
+    const finalText = String(result || '').trim();
+    if (finalText) {
+      p.imagePromptText = finalText;
+      textarea.value = finalText;
+      if (note) note.textContent = `Generated (${getImagePromptFormatLabel()})`;
+      setTimeout(() => {
+        if (note) note.textContent = getImagePromptNoteDefault();
+      }, 1200);
+    } else {
+      if (note) note.textContent = 'No prompt returned.';
+    }
+  } catch (err) {
+    if (note) note.textContent = `Prompt error: ${err && err.message ? err.message : 'request failed'}`;
+  } finally {
+    textarea.disabled = false;
   }
 }
 

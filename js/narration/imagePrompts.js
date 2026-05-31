@@ -1,90 +1,74 @@
-// Image prompt helpers (no network I/O).
+// Image prompt generation templates (no network I/O).
+
+const IMAGE_PROMPT_SYSTEM_BASE =
+  'You are an assistant generating detailed prompts for AI image generation.';
+
+const IMAGE_PROMPT_SYSTEM_STRUCTURED = `${IMAGE_PROMPT_SYSTEM_BASE}
+Return a compact, structured natural-language prompt (not tags).
+Keep it suitable for SDXL/Flux-style models: subject first, then key details (outfit, equipment, body, mood), then lighting/style/background.
+Do not include disclaimers or meta commentary.`;
+
+const IMAGE_PROMPT_SYSTEM_DANBOORU = `${IMAGE_PROMPT_SYSTEM_BASE}
+Return ONLY comma-separated danbooru-style tags (no prose, no sentences).
+Use short tags and common conventions (underscores instead of spaces). Prefer concrete visual tags.
+Avoid parenthetical explanations. Do not include disclaimers or meta commentary.`;
 
 function normalizeWhitespace(text) {
-  return String(text || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-function buildImagePromptStructured(ctx) {
-  const theme = normalizeWhitespace(ctx.theme || '');
-  const base = normalizeWhitespace(ctx.characterDesc || '');
-  const appearance = normalizeWhitespace(ctx.physicalDescription || '');
-
-  const subject = appearance || base || 'a fantasy adventurer';
-  const themeLine = theme ? `Theme: ${theme}` : '';
-
-  return [
-    'Subject:',
-    `- ${subject}`,
-    themeLine ? '' : null,
-    themeLine ? themeLine : null,
-    '',
-    'Composition:',
-    '- full body, centered, readable silhouette',
-    'Style:',
-    '- high detail, crisp linework, cinematic lighting, sharp focus',
-    'Background:',
-    '- simple, theme-appropriate environment, not cluttered',
-    'Quality:',
-    '- highres, detailed textures',
-  ].filter(Boolean).join('\n');
-}
-
-function extractSimpleTags(text) {
-  const t = String(text || '').toLowerCase();
-  const tags = new Set();
-
-  const maybeAdd = (cond, tag) => { if (cond) tags.add(tag); };
-
-  maybeAdd(t.includes('cloak'), 'cloak');
-  maybeAdd(t.includes('hood'), 'hood');
-  maybeAdd(t.includes('robe'), 'robe');
-  maybeAdd(t.includes('armor') || t.includes('armour'), 'armor');
-  maybeAdd(t.includes('leather'), 'leather_armor');
-  maybeAdd(t.includes('plate'), 'plate_armor');
-  maybeAdd(t.includes('sword'), 'sword');
-  maybeAdd(t.includes('dagger'), 'dagger');
-  maybeAdd(t.includes('bow'), 'bow_(weapon)');
-  maybeAdd(t.includes('staff'), 'staff');
-  maybeAdd(t.includes('shield'), 'shield');
-  maybeAdd(t.includes('helmet'), 'helmet');
-  maybeAdd(t.includes('gloves'), 'gloves');
-  maybeAdd(t.includes('boots'), 'boots');
-  maybeAdd(t.includes('cape'), 'cape');
-  maybeAdd(t.includes('mask'), 'mask');
-  maybeAdd(t.includes('scar'), 'scar');
-
-  return [...tags];
-}
-
-function buildImagePromptDanbooru(ctx) {
-  const theme = normalizeWhitespace(ctx.theme || '').toLowerCase();
-  const base = normalizeWhitespace(ctx.characterDesc || '').toLowerCase();
-  const appearance = normalizeWhitespace(ctx.physicalDescription || '').toLowerCase();
-  const text = `${theme} ${base} ${appearance}`.trim();
-
-  const tags = new Set([
-    'solo',
-    'full_body',
-    'fantasy',
-    'adventurer',
-    'highres',
-    'detailed',
-    'cinematic_lighting',
-    'sharp_focus',
-  ]);
-
-  for (const tag of extractSimpleTags(text)) tags.add(tag);
-  if (text.includes('gothic')) tags.add('gothic');
-  if (text.includes('sci-fi') || text.includes('scifi') || text.includes('science fiction')) tags.add('science_fiction');
-
-  return [...tags].join(', ');
-}
-
-function buildImagePromptFromContext(ctx, format) {
+function buildImagePromptSystem(format) {
   const fmt = String(format || '').toLowerCase();
-  if (fmt === 'danbooru') return buildImagePromptDanbooru(ctx);
-  return buildImagePromptStructured(ctx);
+  if (fmt === 'danbooru') return IMAGE_PROMPT_SYSTEM_DANBOORU;
+  return IMAGE_PROMPT_SYSTEM_STRUCTURED;
+}
+
+function buildCharacterContextForImagePrompt({ equippedItems = [], curses = [] } = {}) {
+  const items = Array.isArray(equippedItems) ? equippedItems : [];
+  const statuses = Array.isArray(curses) ? curses : [];
+
+  const equippedText = items.length
+    ? `Equipped items: ${items.map(i => `${i.name}${i.desc ? ` (${i.desc})` : ''}`).join(', ')}`
+    : 'Equipped items: none';
+
+  const curseText = statuses.length
+    ? `Curses/status effects: ${statuses.map(s => `${s.name}${s.attribute ? ` (${s.attribute} ${s.magnitude})` : ''}`).join(', ')}`
+    : 'Curses/status effects: none';
+
+  return `${equippedText}\n${curseText}`.trim();
+}
+
+function buildImagePromptGenerationPrompt({
+  format,
+  storyContext,
+  characterContext,
+  previousDescription,
+  maxTokens,
+} = {}) {
+  const sys = buildImagePromptSystem(format);
+  const story = normalizeWhitespace(storyContext || '');
+  const charCtx = String(characterContext || '').trim();
+  const prev = String(previousDescription || '').trim();
+  const maxTok = Math.max(64, Math.min(1024, Number(maxTokens) || 350));
+
+  return `SYSTEM PROMPT (obey first):
+${sys}
+
+TASK:
+- Generate an image-generation prompt for the CURRENT moment of the story.
+- Use the previous description as the base, and modify it to match the current state (items + curses).
+- Keep the result short and model-friendly (aim for <= ${maxTok} tokens).
+
+STORY CONTEXT (recent slice):
+${story || 'none'}
+
+CHARACTER CONTEXT (current state):
+${charCtx || 'none'}
+
+PREVIOUS CHARACTER DESCRIPTION (base to modify):
+${prev || 'none'}
+
+OUTPUT:
+Return only the final image prompt in the requested format.`;
 }
 

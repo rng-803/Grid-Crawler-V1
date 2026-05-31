@@ -107,6 +107,10 @@ async function chatCompletion(userContent, options = {}) {
   if (options.stream) {
     body.stream = true;
   }
+  if (options.maxTokens != null) {
+    const maxTokens = Math.max(1, Math.floor(Number(options.maxTokens) || 0));
+    if (maxTokens > 0) body.max_tokens = maxTokens;
+  }
   if (options.responseFormat) {
     body.response_format = options.responseFormat;
   }

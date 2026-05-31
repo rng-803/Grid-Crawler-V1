@@ -13,7 +13,7 @@ The game can optionally use an **OpenAI-compatible Chat Completions API** for:
 - Updating a **player physical description** (“appearance”) after key events
 
 The project also includes an **image-prompt helper**:
-- Builds an **image generation prompt** from the current theme + appearance
+- Uses the **LLM to generate a complete image-generation prompt** from story + character context
 - Supports either **structured natural language** or **danbooru tag format** (toggle in `js/config/constants.js`)
 - Lets the player **edit** and **copy** the prompt for use in external generators
 - Includes a starter **OpenAI-compatible Images API** integration (optional)
@@ -379,7 +379,7 @@ UI icons used in the status panel:
   - All prompt templates (narration, naming, story summary, appearance updates)
   - No network calls; pure string builders
 - `js/narration/imagePrompts.js`
-  - Image prompt builders (structured prompt block vs danbooru tags)
+  - Image prompt LLM templates (system prompt + context packing; structured vs danbooru)
 - `js/narration/chronicle.js`
   - Placeholder (chronicle logic currently implemented in `js/gameplay/core.js`)
 

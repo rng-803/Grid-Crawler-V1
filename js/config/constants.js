@@ -33,6 +33,10 @@ const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 // - 'structured': natural-language structured prompt block
 // - 'danbooru': comma-separated danbooru-style tags (SDXL-friendly)
 const IMAGE_PROMPT_FORMAT = 'structured';
+// Context slice fed into prompt generation (characters from chronicle + summary).
+const IMAGE_PROMPT_CONTEXT_CHARS = 3000;
+// Keep generated prompts short enough for most image models.
+const IMAGE_PROMPT_MAX_TOKENS = 350;
 
 // Persistent debuffs applied to the player (shown in-game as “curses”).
 let NEGATIVE_STATUS_POOL = [

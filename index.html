@@ -74,7 +74,10 @@
         style="width: 100%; height: 60px; margin-bottom: 10px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); resize: vertical; font-family: inherit;"></textarea>
 
       <div class="preset-row">
-        <label>Story presets (setting + theme + details + character — saved locally, and synced online when available):</label>
+        <label>
+          Story presets (setting + theme + details + character — saved locally, and synced online when available):
+          <span id="theme-sync-status" style="font-size: 0.8em; opacity: 0.85;"></span>
+        </label>
         <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px;">
           <select id="theme-preset-select"
             style="flex: 1; min-width: 160px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border);"></select>

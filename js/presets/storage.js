@@ -411,6 +411,13 @@ async function restoreSessionsFromStorage() {
   refreshThemePresetSelect();
   syncGameplayApiControlsFromFields();
 
+  // Seed Image API defaults from Narrator API fields (non-persistent for now).
+  const imageUrlEl = document.getElementById('image-api-url');
+  const mainUrlEl = document.getElementById('api-url');
+  if (imageUrlEl && mainUrlEl && !String(imageUrlEl.value || '').trim()) {
+    imageUrlEl.value = mainUrlEl.value.trim();
+  }
+
   // Then, if available, pull theme settings from Supabase and override local.
   if (window.GC_THEME_STORE && typeof window.GC_THEME_STORE.loadThemeState === 'function') {
     try {

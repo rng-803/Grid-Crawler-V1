@@ -157,6 +157,8 @@ body.game-active .panel {
 #status-panel:not(.expanded) .status-details,
 #status-panel:not(.expanded) #btn-character-description,
 #status-panel:not(.expanded) #character-description,
+#status-panel:not(.expanded) #btn-image-prompt,
+#status-panel:not(.expanded) #image-prompt,
 #status-panel:not(.expanded) .runtime-api-control,
 #status-panel:not(.expanded) .panel-title {
   display: none;

@@ -156,6 +156,41 @@
       <button type="button" class="btn btn-dir" id="btn-character-description"
         style="width: 100%; margin-top: 12px;" onclick="toggleCharacterDescription()">Character Description</button>
       <div id="character-description" class="character-description"></div>
+      <button type="button" class="btn btn-dir" id="btn-image-prompt"
+        style="width: 100%; margin-top: 10px;" onclick="toggleImagePrompt()">Image Prompt</button>
+      <div id="image-prompt" class="character-description">
+        <div class="runtime-api-note" id="image-prompt-format-note" style="margin-bottom: 8px;"></div>
+        <textarea id="image-prompt-text" spellcheck="false"
+          style="width: 100%; min-height: 130px; padding: 8px; background: rgba(0,0,0,0.25); color: var(--text); border: 1px solid var(--border); border-radius: 6px; resize: vertical; font-family: inherit; font-size: 0.82rem; line-height: 1.35;"></textarea>
+        <div class="runtime-api-actions" style="margin-top: 8px;">
+          <button type="button" class="btn btn-dir" onclick="copyImagePromptToClipboard()">Copy</button>
+          <button type="button" class="btn btn-dir" onclick="resetImagePromptFromAppearance()">Reset</button>
+        </div>
+      </div>
+      <div class="panel-title section-gap" style="font-size:0.85rem;">Image Model API</div>
+      <div class="runtime-api-control">
+        <label for="image-api-url">API Base URL (OpenAI compatible)</label>
+        <input type="text" id="image-api-url" placeholder="https://.../v1">
+        <label for="image-api-key">API Key</label>
+        <input type="password" id="image-api-key" placeholder="optional (falls back to Narrator API key)">
+        <label for="image-api-model">Model</label>
+        <input type="text" id="image-api-model" placeholder="model id (e.g. gpt-image-1, sdxl, flux...)">
+        <label for="image-api-size">Size</label>
+        <select id="image-api-size">
+          <option value="1024x1024">1024×1024</option>
+          <option value="1024x1536">1024×1536</option>
+          <option value="1536x1024">1536×1024</option>
+        </select>
+        <div class="runtime-api-actions">
+          <button type="button" class="btn btn-dir" onclick="generateImageFromPrompt()">Generate</button>
+          <button type="button" class="btn btn-dir" onclick="clearGeneratedImage()">Clear</button>
+        </div>
+        <div class="runtime-api-note">This is a starter integration for OpenAI-compatible image endpoints.</div>
+        <div id="image-api-output" style="margin-top: 10px; display:none;">
+          <img id="image-api-output-img" alt="Generated image preview"
+            style="width: 100%; border-radius: 10px; border: 1px solid var(--border); display:block;" />
+        </div>
+      </div>
       <div class="panel-title section-gap" style="font-size:0.85rem;">Narrator API</div>
       <div class="runtime-api-control">
         <label for="game-api-model">Model for future narration</label>
@@ -205,8 +240,10 @@
   <script src="js/supabase/client.js"></script>
   <script src="js/supabase/themeStore.js"></script>
   <script src="js/api/client.js"></script>
+  <script src="js/api/imageClient.js"></script>
   <script src="js/presets/storage.js"></script>
   <script src="js/narration/prompts.js"></script>
+  <script src="js/narration/imagePrompts.js"></script>
   <script src="js/rendering/ui.js"></script>
   <script src="js/narration/chronicle.js"></script>
   <script src="js/gameplay/core.js"></script>

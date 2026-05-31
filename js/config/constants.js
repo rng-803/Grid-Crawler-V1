@@ -29,6 +29,11 @@ const NONARRATION = true;
 
 const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 
+// Image prompt formatting
+// - 'structured': natural-language structured prompt block
+// - 'danbooru': comma-separated danbooru-style tags (SDXL-friendly)
+const IMAGE_PROMPT_FORMAT = 'structured';
+
 // Persistent debuffs applied to the player (shown in-game as “curses”).
 let NEGATIVE_STATUS_POOL = [
   { name: 'Weakened', attribute: 'power', magnitude: -1 },

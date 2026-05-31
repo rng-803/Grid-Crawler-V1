@@ -12,6 +12,12 @@ The game can optionally use an **OpenAI-compatible Chat Completions API** for:
 - Maintaining a **short story summary** across runs
 - Updating a **player physical description** (“appearance”) after key events
 
+The project also includes an **image-prompt helper**:
+- Builds an **image generation prompt** from the current theme + appearance
+- Supports either **structured natural language** or **danbooru tag format** (toggle in `js/config/constants.js`)
+- Lets the player **edit** and **copy** the prompt for use in external generators
+- Includes a starter **OpenAI-compatible Images API** integration (optional)
+
 The project is plain HTML/CSS/JS (no bundler). It runs as a static site.
 
 ## 2) Quick start (local)
@@ -185,6 +191,8 @@ Shows:
 - Curses (statuses), including permanent labeling
 - Full inventory with buttons to Equip/Unequip or Use (curse-clear)
 - “Appearance” (physical description) toggle
+- “Image Prompt” toggle (editable + copy-to-clipboard)
+- “Image Model API” controls (starter OpenAI-compatible image endpoint integration)
 - Runtime “Narrator API” controls (change model + load/save API presets)
 
 The status panel is **collapsible/expandable**:
@@ -353,6 +361,7 @@ UI icons used in the status panel:
 - `js/config/constants.js`
   - Game tuning constants (grid size, wall ratio, difficulty scaling, coin ranges, item limits)
   - Debug toggles (win-all, lose-all, infinite health, narration disable)
+  - Image prompt format toggle (`IMAGE_PROMPT_FORMAT`)
   - Default naming pools used if AI naming is skipped
 
 ### `js/api/`
@@ -361,11 +370,16 @@ UI icons used in the status panel:
   - Streaming parser for `stream=true`
   - Timing log utilities (`formatApiTimingLog()` etc.)
   - Helpers for narration, physical description, and JSON-mode naming calls
+- `js/api/imageClient.js`
+  - Starter OpenAI-compatible Images API client (`/images/generations`)
+  - Returns base64 image payloads for in-app preview
 
 ### `js/narration/`
 - `js/narration/prompts.js`
   - All prompt templates (narration, naming, story summary, appearance updates)
   - No network calls; pure string builders
+- `js/narration/imagePrompts.js`
+  - Image prompt builders (structured prompt block vs danbooru tags)
 - `js/narration/chronicle.js`
   - Placeholder (chronicle logic currently implemented in `js/gameplay/core.js`)
 
@@ -418,4 +432,3 @@ From `REFACTOR_NOTES.md` (still relevant):
 - Move chronicle/log state and event handlers from `js/gameplay/core.js` → `js/narration/chronicle.js`
 - Introduce explicit namespaces (or a boot module) to reduce global coupling
 - Add smoke tests for setup flow, movement, and encounter resolution
-

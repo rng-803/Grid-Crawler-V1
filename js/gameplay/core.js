@@ -208,6 +208,8 @@ function initState(className) {
       inventory: [],
       physicalDescription: AI_CONTEXT.characterDesc || `A ${className} adventurer.`,
       physicalDescriptionLoading: false,
+      imagePromptText: '',
+      imagePromptLastAuto: '',
     },
     currentLocation: 'dungeon',
     runNumber: 1,
@@ -647,6 +649,133 @@ function toggleCharacterDescription() {
   renderCharacterDescription();
   div.style.display = 'block';
   button.textContent = 'Hide Appearance';
+}
+
+function getImagePromptFormatLabel() {
+  const fmt = typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured';
+  return fmt === 'danbooru' ? 'danbooru tags' : 'structured prompt';
+}
+
+function computeAutoImagePrompt() {
+  if (!G) return '';
+  if (typeof buildImagePromptFromContext !== 'function') return '';
+  const ctx = {
+    theme: AI_CONTEXT.theme,
+    characterDesc: AI_CONTEXT.characterDesc,
+    physicalDescription: G.player && G.player.physicalDescription,
+  };
+  return buildImagePromptFromContext(ctx, typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured');
+}
+
+function renderImagePrompt() {
+  const container = document.getElementById('image-prompt');
+  const note = document.getElementById('image-prompt-format-note');
+  const textarea = document.getElementById('image-prompt-text');
+  if (!container || !note || !textarea || !G) return;
+
+  const autoText = computeAutoImagePrompt();
+  if (!G.player.imagePromptText) {
+    G.player.imagePromptText = autoText;
+    G.player.imagePromptLastAuto = autoText;
+  }
+
+  note.textContent = `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
+  textarea.value = G.player.imagePromptText || '';
+
+  if (!textarea.__gcWired) {
+    textarea.__gcWired = true;
+    textarea.addEventListener('input', () => {
+      if (!G) return;
+      G.player.imagePromptText = textarea.value;
+    });
+  }
+}
+
+function toggleImagePrompt() {
+  const div = document.getElementById('image-prompt');
+  const button = document.getElementById('btn-image-prompt');
+  if (!div || !button) return;
+
+  if (div.style.display === 'block') {
+    div.style.display = 'none';
+    button.textContent = 'Show Image Prompt';
+    return;
+  }
+
+  renderImagePrompt();
+  div.style.display = 'block';
+  button.textContent = 'Hide Image Prompt';
+}
+
+function resetImagePromptFromAppearance() {
+  if (!G) return;
+  const textarea = document.getElementById('image-prompt-text');
+  const autoText = computeAutoImagePrompt();
+  G.player.imagePromptText = autoText;
+  G.player.imagePromptLastAuto = autoText;
+  if (textarea) textarea.value = autoText;
+}
+
+async function copyImagePromptToClipboard() {
+  const textarea = document.getElementById('image-prompt-text');
+  const note = document.getElementById('image-prompt-format-note');
+  const text = textarea ? textarea.value : (G && G.player ? G.player.imagePromptText : '');
+  const payload = String(text || '');
+  if (!payload) return;
+
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(payload);
+    } else {
+      const tmp = document.createElement('textarea');
+      tmp.value = payload;
+      tmp.setAttribute('readonly', 'readonly');
+      tmp.style.position = 'fixed';
+      tmp.style.left = '-9999px';
+      document.body.appendChild(tmp);
+      tmp.select();
+      document.execCommand('copy');
+      tmp.remove();
+    }
+    if (note) note.textContent = `Copied (${getImagePromptFormatLabel()})`;
+    setTimeout(() => {
+      if (note) note.textContent = `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
+    }, 1200);
+  } catch (_) {
+    if (note) note.textContent = 'Copy failed (browser permission)';
+  }
+}
+
+async function generateImageFromPrompt() {
+  const textarea = document.getElementById('image-prompt-text');
+  const note = document.getElementById('image-prompt-format-note');
+  const promptText = textarea ? textarea.value : '';
+  if (!promptText.trim()) return;
+  if (typeof imageGeneration !== 'function') {
+    if (note) note.textContent = 'Image API client not loaded.';
+    return;
+  }
+
+  try {
+    if (note) note.textContent = 'Generating image...';
+    const { b64, model } = await imageGeneration(promptText);
+    const out = document.getElementById('image-api-output');
+    const img = document.getElementById('image-api-output-img');
+    if (img && out) {
+      img.src = `data:image/png;base64,${b64}`;
+      out.style.display = 'block';
+    }
+    if (note) note.textContent = `Generated (model: ${model})`;
+  } catch (err) {
+    if (note) note.textContent = `Image error: ${err && err.message ? err.message : 'request failed'}`;
+  }
+}
+
+function clearGeneratedImage() {
+  const out = document.getElementById('image-api-output');
+  const img = document.getElementById('image-api-output-img');
+  if (img) img.removeAttribute('src');
+  if (out) out.style.display = 'none';
 }
 
 async function refreshPhysicalDescription(change) {

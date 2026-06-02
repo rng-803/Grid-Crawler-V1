@@ -31,10 +31,10 @@ const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 // Relative weights used when a dungeon cell becomes an encounter instead of empty space.
 // Treasure cells are the game's trap / risky loot encounters.
 const ENCOUNTER_TYPE_WEIGHTS = {
-  enemy: 0.42,
-  npc: 0.20,
+  enemy: 0.40,
+  npc: 0.30,
   treasure: 0.20,
-  item: 0.18,
+  item: 0.10,
 };
 
 // Image prompt formatting

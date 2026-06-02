@@ -2324,13 +2324,17 @@ async function toggleEquipItem(index) {
   if (!item || item.type !== 'buff') return;
 
   if (!item.equipped && getEquippedItemCount() >= MAX_EQUIPPED_ITEMS) {
-    addLog(`<span class="info-txt">You can only equip ${MAX_EQUIPPED_ITEMS} items at a time.</span>`, 'event-neutral');
+    const message = `<span class="info-txt">You can only equip ${MAX_EQUIPPED_ITEMS} items at a time.</span>`;
+    addLog(message, 'event-neutral');
+    appendChronicleText(stripHtml(message));
     renderUI();
     return;
   }
 
   item.equipped = !item.equipped;
-  addLog(`You ${item.equipped ? 'equip' : 'unequip'} <em>${item.name}</em> (${itemDescription(item)}).`, 'event-neutral');
+  const message = `You ${item.equipped ? 'equip' : 'unequip'} <em>${item.name}</em> (${itemDescription(item)}).`;
+  addLog(message, 'event-neutral');
+  appendChronicleText(stripHtml(message));
   await refreshPhysicalDescription(`${item.equipped ? 'Equipped' : 'Unequipped'} ${item.name}.`);
   const isGameOver = await checkGameOver();
   if (!isGameOver) renderUI();
@@ -2345,7 +2349,9 @@ async function useCurseClearItem(index) {
     .map((curse, index) => ({ curse, index }))
     .filter(({ curse }) => !curse.permanent);
   if (!removable.length) {
-    addLog(`<span class="info-txt">You have no temporary curses for <em>${item.name}</em> to remove. Permanent curses cannot be cleared.</span>`, 'event-neutral');
+    const message = `<span class="info-txt">You have no temporary curses for <em>${item.name}</em> to remove. Permanent curses cannot be cleared.</span>`;
+    addLog(message, 'event-neutral');
+    appendChronicleText(stripHtml(message));
     renderUI();
     return;
   }
@@ -2373,7 +2379,9 @@ async function useCurseClearItem(index) {
   const removed = curses.splice(removable[choiceIndex].index, 1)[0];
   returnCurseToPool(removed);
   G.player.inventory.splice(index, 1);
-  addLog(`<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`, 'event-neutral');
+  const message = `<span class="good-txt">You use <em>${item.name}</em> and remove <em>${removed.name}</em>.</span>`;
+  addLog(message, 'event-neutral');
+  appendChronicleText(stripHtml(message));
   await refreshPhysicalDescription(`Removed curse ${removed.name} with ${item.name}.`);
   renderUI();
 }
@@ -2428,6 +2436,23 @@ function addLog(html, cls = 'event-neutral', options = {}) {
   if (options.focus !== false) CHRONICLE_INDEX = entries.length - 1;
   updateChronicleVisibility();
   return el;
+}
+
+function appendChronicleText(text) {
+  const trimmed = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!trimmed || !G) return;
+  if (G.betweenRuns) {
+    G.betweenRunChronicle = G.betweenRunChronicle
+      ? `${G.betweenRunChronicle}\n\n${trimmed}`
+      : trimmed;
+  } else {
+    G.currentRunChronicle = G.currentRunChronicle
+      ? `${G.currentRunChronicle}\n\n${trimmed}`
+      : trimmed;
+  }
+  G.llmChronicle = [G.storySummary, G.betweenRunChronicle, G.currentRunChronicle]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function getChronicleEntries() {

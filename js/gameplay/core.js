@@ -2165,8 +2165,8 @@ async function visitUpgrader(data) {
 
   const itemIndex = await chooseInventoryIndexModal(
     eligible,
-    `Choose a status item to upgrade for ${data.serviceCost} coins`,
-    itemDescription,
+    'Choose a status item to upgrade',
+    (item) => `${itemDescription(item)} · upgrade cost ${getItemUpgradeCost(normalizeBuffItem(item).level)} coins`,
   );
   if (itemIndex < 0) {
     addLog(`<span class="info-txt">No item was upgraded.</span>`, 'event-neutral');
@@ -2174,14 +2174,19 @@ async function visitUpgrader(data) {
     return;
   }
 
-  if (!payForTownService(data)) return;
-
   G.phase = 'loading';
   renderInputPanel();
   const item = G.player.inventory[itemIndex];
   const previousLevel = normalizeBuffItem(item).level;
+  const upgradeCost = getItemUpgradeCost(previousLevel);
+  if (!spendMoney(upgradeCost)) {
+    addLog(`<span class="danger-txt">${data.name} asks ${upgradeCost} coins to upgrade <em>${item.name}</em>, but you only have ${G.player.money}.</span>`, 'event-neutral');
+    G.phase = 'playing';
+    renderUI();
+    return;
+  }
   setItemLevel(item, previousLevel + 1);
-  const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${data.serviceCost} coins.</span>`;
+  const fallbackText = `<span class="good-txt">${data.name} upgrades <em>${item.name}</em> to level ${item.level} for ${upgradeCost} coins.</span>`;
 
   const prompt = buildUpgraderDialoguePrompt(data, item, previousLevel, getPlayerContext());
   const narration = await streamNarrationLog(prompt, '<span class="info-txt">The upgrader is speaking...</span>', 'event-npc');
@@ -2792,7 +2797,9 @@ function renderInputPanel() {
     }
     if (G.currentLocation === 'town' && cell && cell.type === 'town-npc') {
       const cost = Math.max(0, Math.floor(Number(cell.data.serviceCost) || 0));
-      const label = cost > 0 ? `Talk (${cost} coins)` : 'Talk';
+      const label = cell.data.role === 'upgrader'
+        ? 'Upgrade'
+        : (cost > 0 ? `Talk (${cost} coins)` : 'Talk');
       actionButtons.push(`<button class="btn btn-continue" onclick="advanceChronicleForAction(); startTownNpc(getCurrentCell().data)">${label}</button>`);
     }
     buttons.innerHTML = `<div class="runtime-api-note">Tap the chronicle to advance dialogue. Keyboard controls still work.</div>`;

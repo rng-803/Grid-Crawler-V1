@@ -18,6 +18,12 @@ const MERCHANT_LEVEL_1_ITEM_PRICE = 10;
 const MAX_EQUIPPED_ITEMS = 3;
 const CURSE_CLEAR_ITEM_CHANCE = 0.25;
 const GRID_GEN_MAX_ATTEMPTS = 200;
+const ITEM_UPGRADE_COST_MULTIPLIERS = {
+  1: 1,
+  2: 1.2,
+  3: 1.5,
+  4: 2,
+};
 
 // Debug toggles
 // If both DEBUG_WIN_ALL_ENCOUNTERS and DEBUG_LOSE_ALL_ENCOUNTERS are true,
@@ -154,4 +160,10 @@ function pickEncounterType() {
     if (roll <= 0) return type;
   }
   return entries[entries.length - 1][0];
+}
+
+function getItemUpgradeCost(currentLevel) {
+  const level = Math.max(1, Math.min(4, Math.floor(Number(currentLevel) || 1)));
+  const multiplier = ITEM_UPGRADE_COST_MULTIPLIERS[level] || 1;
+  return Math.max(0, Math.ceil(ITEM_UPGRADE_COST * multiplier));
 }

@@ -1240,7 +1240,7 @@ function generateGrid() {
         cells[y][x].encounterState = 'none';
         continue;
       }
-      const t = pick(ENCOUNTER_TYPES);
+      const t = pickEncounterType();
       cells[y][x].type = t;
       const diff = rollDifficultyByDistance(x, y, bossPos.x, bossPos.y);
       if (t === 'enemy') {

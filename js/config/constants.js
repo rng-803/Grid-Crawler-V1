@@ -28,6 +28,14 @@ const DEBUG_LOSE_ALL_ENCOUNTERS = true;
 const NONARRATION = false;
 
 const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
+// Relative weights used when a dungeon cell becomes an encounter instead of empty space.
+// Treasure cells are the game's trap / risky loot encounters.
+const ENCOUNTER_TYPE_WEIGHTS = {
+  enemy: 0.42,
+  npc: 0.20,
+  treasure: 0.20,
+  item: 0.18,
+};
 
 // Image prompt formatting
 // - 'structured': natural-language structured prompt block
@@ -130,4 +138,20 @@ function rollDifficultyByDistance(x, y, exitX, exitY) {
   }
 
   return base + Math.floor(Math.random() * 5);
+}
+
+function pickEncounterType() {
+  const entries = ENCOUNTER_TYPES
+    .map((type) => [type, Number(ENCOUNTER_TYPE_WEIGHTS[type] || 0)])
+    .filter(([, weight]) => weight > 0);
+
+  if (!entries.length) return pick(ENCOUNTER_TYPES);
+
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  let roll = Math.random() * total;
+  for (const [type, weight] of entries) {
+    roll -= weight;
+    if (roll <= 0) return type;
+  }
+  return entries[entries.length - 1][0];
 }

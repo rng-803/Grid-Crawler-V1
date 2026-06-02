@@ -22,10 +22,10 @@ const GRID_GEN_MAX_ATTEMPTS = 200;
 // Debug toggles
 // If both DEBUG_WIN_ALL_ENCOUNTERS and DEBUG_LOSE_ALL_ENCOUNTERS are true,
 // lose-all takes precedence.
-const DEBUG_INFINITE_HEALTH = false;
-const DEBUG_WIN_ALL_ENCOUNTERS = false;
-const DEBUG_LOSE_ALL_ENCOUNTERS = true;
-const NONARRATION = false;
+let DEBUG_INFINITE_HEALTH = false;
+let DEBUG_WIN_ALL_ENCOUNTERS = false;
+let DEBUG_LOSE_ALL_ENCOUNTERS = true;
+let NONARRATION = false;
 
 const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 // Relative weights used when a dungeon cell becomes an encounter instead of empty space.
@@ -40,7 +40,7 @@ const ENCOUNTER_TYPE_WEIGHTS = {
 // Image prompt formatting
 // - 'structured': natural-language structured prompt block
 // - 'danbooru': comma-separated danbooru-style tags (SDXL-friendly)
-const IMAGE_PROMPT_FORMAT = 'structured';
+let IMAGE_PROMPT_FORMAT = 'structured';
 // Context slice fed into prompt generation (characters from chronicle + summary).
 const IMAGE_PROMPT_CONTEXT_CHARS = 3000;
 // Keep generated prompts short enough for most image models.

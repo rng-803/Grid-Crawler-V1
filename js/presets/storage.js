@@ -7,6 +7,7 @@ const LS_API_PRESETS = 'gridCrawler_apiPresets';
 const LS_THEME_LAST = 'gridCrawler_themeLastSession';
 const LS_THEME_PRESETS = 'gridCrawler_themePresets';
 const LS_NARRATION_PROMPT_DEBUG = 'gridCrawler_narrationPromptDebug';
+const LS_DEBUG_SETTINGS = 'gridCrawler_debugSettings';
 
 let __themePresetCache = null;
 let __themeLastCache = null;
@@ -184,6 +185,35 @@ function persistThemeLastSession() {
     localStorage.setItem(LS_THEME_LAST, JSON.stringify(__themeLastCache));
   } catch (_) { /* quota / privacy mode */ }
   queueRemoteThemeSave();
+}
+
+function getCurrentDebugSettings() {
+  return {
+    imagePromptFormat: typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured',
+    debugInfiniteHealth: Boolean(DEBUG_INFINITE_HEALTH),
+    debugWinAllEncounters: Boolean(DEBUG_WIN_ALL_ENCOUNTERS),
+    debugLoseAllEncounters: Boolean(DEBUG_LOSE_ALL_ENCOUNTERS),
+    nonNarration: Boolean(NONARRATION),
+  };
+}
+
+function applyDebugSettings(settings) {
+  if (!settings) return;
+  if (settings.imagePromptFormat != null) {
+    IMAGE_PROMPT_FORMAT = String(settings.imagePromptFormat) === 'danbooru' ? 'danbooru' : 'structured';
+  }
+  if (settings.debugInfiniteHealth != null) DEBUG_INFINITE_HEALTH = Boolean(settings.debugInfiniteHealth);
+  if (settings.debugWinAllEncounters != null) DEBUG_WIN_ALL_ENCOUNTERS = Boolean(settings.debugWinAllEncounters);
+  if (settings.debugLoseAllEncounters != null) DEBUG_LOSE_ALL_ENCOUNTERS = Boolean(settings.debugLoseAllEncounters);
+  if (settings.nonNarration != null) NONARRATION = Boolean(settings.nonNarration);
+  if (typeof syncDebugMenuControls === 'function') syncDebugMenuControls();
+  if (typeof updateImagePromptFormatNote === 'function') updateImagePromptFormatNote();
+}
+
+function persistDebugSettings() {
+  try {
+    localStorage.setItem(LS_DEBUG_SETTINGS, JSON.stringify(getCurrentDebugSettings()));
+  } catch (_) { /* quota / privacy mode */ }
 }
 
 function queueRemoteThemeSave() {
@@ -410,6 +440,11 @@ async function restoreSessionsFromStorage() {
   }
   const themePresetsRaw = localStorage.getItem(LS_THEME_PRESETS);
   if (themePresetsRaw) __themePresetCache = presetsSafeParse(themePresetsRaw, []);
+  const debugSettingsRaw = localStorage.getItem(LS_DEBUG_SETTINGS);
+  if (debugSettingsRaw) {
+    const debugSettings = presetsSafeParse(debugSettingsRaw, null);
+    if (debugSettings) applyDebugSettings(debugSettings);
+  }
 
   refreshApiPresetSelect();
   refreshThemePresetSelect();

@@ -197,6 +197,9 @@ async function chatCompletion(userContent, options = {}) {
 }
 
 async function generateNarration(aiContext, promptText, options = {}) {
+  if (typeof NONARRATION !== 'undefined' && NONARRATION) {
+    return null;
+  }
   const fullPrompt = buildNarratorFullPrompt(aiContext, promptText);
   try {
     const { apiKey } = getApiFromDom();

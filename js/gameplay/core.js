@@ -704,13 +704,18 @@ function getImagePromptNoteDefault() {
   return `Format: ${getImagePromptFormatLabel()} (set in js/config/constants.js)`;
 }
 
+function updateImagePromptFormatNote() {
+  const note = document.getElementById('image-prompt-format-note');
+  if (note) note.textContent = getImagePromptNoteDefault();
+}
+
 function renderImagePrompt() {
   const container = document.getElementById('image-prompt');
   const note = document.getElementById('image-prompt-format-note');
   const textarea = document.getElementById('image-prompt-text');
   if (!container || !note || !textarea || !G) return;
 
-  note.textContent = getImagePromptNoteDefault();
+  updateImagePromptFormatNote();
   textarea.value = G.player.imagePromptText || '';
 
   if (!textarea.__gcWired) {
@@ -736,6 +741,62 @@ function toggleImagePrompt() {
   renderImagePrompt();
   div.style.display = 'block';
   button.textContent = 'Hide Image Prompt';
+}
+
+function syncDebugMenuControls() {
+  const imageFormat = document.getElementById('debug-image-prompt-format');
+  const infiniteHealth = document.getElementById('debug-infinite-health');
+  const winAll = document.getElementById('debug-win-all');
+  const loseAll = document.getElementById('debug-lose-all');
+  const noNarration = document.getElementById('debug-no-narration');
+
+  if (imageFormat) imageFormat.value = typeof IMAGE_PROMPT_FORMAT === 'string' ? IMAGE_PROMPT_FORMAT : 'structured';
+  if (infiniteHealth) infiniteHealth.checked = Boolean(DEBUG_INFINITE_HEALTH);
+  if (winAll) winAll.checked = Boolean(DEBUG_WIN_ALL_ENCOUNTERS);
+  if (loseAll) loseAll.checked = Boolean(DEBUG_LOSE_ALL_ENCOUNTERS);
+  if (noNarration) noNarration.checked = Boolean(NONARRATION);
+  updateImagePromptFormatNote();
+}
+
+function setDebugMenuSetting(key, value) {
+  if (key === 'imagePromptFormat') {
+    IMAGE_PROMPT_FORMAT = String(value) === 'danbooru' ? 'danbooru' : 'structured';
+  } else if (key === 'debugInfiniteHealth') {
+    DEBUG_INFINITE_HEALTH = Boolean(value);
+  } else if (key === 'debugWinAllEncounters') {
+    DEBUG_WIN_ALL_ENCOUNTERS = Boolean(value);
+    if (DEBUG_WIN_ALL_ENCOUNTERS) DEBUG_LOSE_ALL_ENCOUNTERS = false;
+  } else if (key === 'debugLoseAllEncounters') {
+    DEBUG_LOSE_ALL_ENCOUNTERS = Boolean(value);
+    if (DEBUG_LOSE_ALL_ENCOUNTERS) DEBUG_WIN_ALL_ENCOUNTERS = false;
+  } else if (key === 'nonNarration') {
+    NONARRATION = Boolean(value);
+  }
+
+  if (typeof persistDebugSettings === 'function') persistDebugSettings();
+  syncDebugMenuControls();
+}
+
+function toggleDebugMenuSetting(key) {
+  if (key === 'imagePromptFormat') {
+    setDebugMenuSetting(key, IMAGE_PROMPT_FORMAT === 'structured' ? 'danbooru' : 'structured');
+    return;
+  }
+  if (key === 'debugInfiniteHealth') {
+    setDebugMenuSetting(key, !DEBUG_INFINITE_HEALTH);
+    return;
+  }
+  if (key === 'debugWinAllEncounters') {
+    setDebugMenuSetting(key, !DEBUG_WIN_ALL_ENCOUNTERS);
+    return;
+  }
+  if (key === 'debugLoseAllEncounters') {
+    setDebugMenuSetting(key, !DEBUG_LOSE_ALL_ENCOUNTERS);
+    return;
+  }
+  if (key === 'nonNarration') {
+    setDebugMenuSetting(key, !NONARRATION);
+  }
 }
 
 function getImagePromptStoryContextSlice() {
@@ -2630,6 +2691,35 @@ function renderStatusPanel() {
     return `<img class="heart-icon${emptyClass}" src="assets/Health.png" alt="${index < p.hp ? 'HP' : 'Missing HP'}">`;
   }).join('');
 
+  const debugMenuHtml = `
+    <div class="panel-title section-gap" style="font-size:0.85rem;">Debug Menu</div>
+    <div class="debug-menu" style="display:grid;gap:10px;padding:4px 0 2px;">
+      <label style="display:grid;gap:6px;">
+        <span class="runtime-api-note">Image prompt format</span>
+        <select id="debug-image-prompt-format" onchange="setDebugMenuSetting('imagePromptFormat', this.value)" style="width:100%;padding:6px;background:var(--panel);color:var(--text);border:1px solid var(--border);">
+          <option value="structured" ${IMAGE_PROMPT_FORMAT === 'structured' ? 'selected' : ''}>structured</option>
+          <option value="danbooru" ${IMAGE_PROMPT_FORMAT === 'danbooru' ? 'selected' : ''}>danbooru</option>
+        </select>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input id="debug-infinite-health" type="checkbox" ${DEBUG_INFINITE_HEALTH ? 'checked' : ''} onchange="setDebugMenuSetting('debugInfiniteHealth', this.checked)">
+        <span>Infinite health</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input id="debug-win-all" type="checkbox" ${DEBUG_WIN_ALL_ENCOUNTERS ? 'checked' : ''} onchange="setDebugMenuSetting('debugWinAllEncounters', this.checked)">
+        <span>Win all encounters</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input id="debug-lose-all" type="checkbox" ${DEBUG_LOSE_ALL_ENCOUNTERS ? 'checked' : ''} onchange="setDebugMenuSetting('debugLoseAllEncounters', this.checked)">
+        <span>Lose all encounters</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input id="debug-no-narration" type="checkbox" ${NONARRATION ? 'checked' : ''} onchange="setDebugMenuSetting('nonNarration', this.checked)">
+        <span>No narration</span>
+      </label>
+    </div>
+  `;
+
   document.getElementById('status-content').innerHTML = `
     <div class="runtime-api-note" style="margin-bottom:8px;">${runHtml}</div>
     <div class="vitals-row">
@@ -2663,8 +2753,10 @@ function renderStatusPanel() {
 
     <div class="panel-title section-gap" style="font-size:0.85rem;">Inventory</div>
     <div>${invHtml}</div>
+    ${debugMenuHtml}
     </div>
   `;
+  syncDebugMenuControls();
 }
 
 function renderInputPanel() {

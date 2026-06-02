@@ -264,9 +264,11 @@ On the AI setup screen:
   - Otherwise it can override older “global pools” style (`ENEMY_NAMES`, `NPC_NAMES`, etc.)
 - **Show API Timings**: shows a log of request durations and failures
 
-## 6) Supabase integration (database)
+## 6) Supabase integration (database) — currently disabled
 
-Supabase is used only to sync **theme settings** across sessions/devices:
+Supabase support exists in the codebase, but it is currently **disabled** (as of 2026-06-01).
+
+When enabled, Supabase is used only to sync **theme settings** across sessions/devices:
 - Story presets
 - Last session’s theme fields
 
@@ -278,10 +280,10 @@ API keys and API presets stay in browser localStorage only.
 - `js/supabase/themeStore.js` reads/writes `theme_settings` for the current user.
 - `js/presets/storage.js`:
   - loads local values first
-  - then, if available, loads remote theme state and overrides local
-  - queues remote writes (debounced) whenever theme values change
+  - optionally loads remote theme state and overrides local
+  - optionally queues remote writes (debounced) whenever theme values change
 
-If Supabase is unavailable (missing CDN, auth disabled, network issues), the game silently falls back to localStorage-only.
+Right now, cloud sync is off by default via `ENABLE_CLOUD_THEME_SYNC = false` in `js/presets/storage.js`, and the Supabase scripts are not loaded in `index.html`. Local-only storage always works.
 
 ### 6.2 Table and RLS
 See `SUPABASE_THEME_SETUP.md` for the SQL to create:
@@ -293,9 +295,8 @@ See `SUPABASE_THEME_SETUP.md` for the SQL to create:
 ### 7.1 No bundler; script load order matters
 Scripts are loaded directly in `index.html` in this order:
 1) `js/config/constants.js` (tuning + default pools)
-2) Supabase CDN + `js/supabase/*` (optional theme sync)
-3) `js/api/client.js` (network calls)
-4) `js/presets/storage.js` (local presets + theme sync wiring)
+2) `js/api/client.js` (network calls)
+3) `js/presets/storage.js` (local presets; cloud sync currently disabled)
 5) `js/narration/prompts.js` (prompt templates)
 6) `js/rendering/ui.js` (placeholder)
 7) `js/narration/chronicle.js` (placeholder)

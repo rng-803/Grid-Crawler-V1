@@ -1,6 +1,8 @@
 # Supabase theme settings sync
 
-This project saves **theme settings only** (story presets + last session theme fields) to Supabase. API settings remain browser-local.
+This project has optional Supabase support to save **theme settings only** (story presets + last session theme fields). API settings remain browser-local.
+
+Note: Supabase integration is currently disabled in the app (as of 2026-06-01). This document is kept so it’s easy to re-enable later.
 
 ## 1) Create table + RLS policies
 
@@ -49,4 +51,3 @@ The Supabase URL + publishable key are currently set in:
 - `js/supabase/client.js:6`
 
 If you rotate keys or move projects, update that file.
-

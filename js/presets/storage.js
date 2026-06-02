@@ -1,4 +1,6 @@
 // Browser-local presets (localStorage): API connection + theme/character setup.
+// Note: cloud persistence (Supabase) is intentionally disabled for now.
+const ENABLE_CLOUD_THEME_SYNC = false;
 
 const LS_API_LAST = 'gridCrawler_apiLastSession';
 const LS_API_PRESETS = 'gridCrawler_apiPresets';
@@ -184,6 +186,7 @@ function persistThemeLastSession() {
 }
 
 function queueRemoteThemeSave() {
+  if (!ENABLE_CLOUD_THEME_SYNC) return;
   if (!window.GC_THEME_STORE || typeof window.GC_THEME_STORE.queueSave !== 'function') return;
   // Only theme settings: story presets + last session theme fields.
   window.GC_THEME_STORE.queueSave({
@@ -418,7 +421,8 @@ async function restoreSessionsFromStorage() {
     imageUrlEl.value = mainUrlEl.value.trim();
   }
 
-  // Then, if available, pull theme settings from Supabase and override local.
+  // Optional cloud theme sync (currently disabled): if enabled, load remote theme state and override local.
+  if (!ENABLE_CLOUD_THEME_SYNC) return;
   if (window.GC_THEME_STORE && typeof window.GC_THEME_STORE.loadThemeState === 'function') {
     try {
       const remote = await window.GC_THEME_STORE.loadThemeState();
@@ -473,7 +477,7 @@ function wirePresetAutosave() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // async (Supabase theme sync) but safe to fire-and-forget
+  // async (restore local sessions) but safe to fire-and-forget
   restoreSessionsFromStorage();
   wirePresetAutosave();
 });

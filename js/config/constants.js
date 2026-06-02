@@ -7,7 +7,7 @@ const WALL_RATIO = 0.4;
 const EMPTY_CELL_CHANCE = 0.5;
 const MAX_ATTR = 20;
 const MAX_LEVEL = 100;
-const PLAYER_MAX_HP = 5;
+const PLAYER_MAX_HP = 3;
 const PLAYER_STARTING_MONEY = 0;
 const ENEMY_WIN_MONEY = { min: 8, max: 14 };
 const ENEMY_LOSS_MONEY = { min: 2, max: 5 };
@@ -24,8 +24,8 @@ const GRID_GEN_MAX_ATTEMPTS = 200;
 // lose-all takes precedence.
 const DEBUG_INFINITE_HEALTH = false;
 const DEBUG_WIN_ALL_ENCOUNTERS = false;
-const DEBUG_LOSE_ALL_ENCOUNTERS = false;
-const NONARRATION = true;
+const DEBUG_LOSE_ALL_ENCOUNTERS = true;
+const NONARRATION = false;
 
 const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
 

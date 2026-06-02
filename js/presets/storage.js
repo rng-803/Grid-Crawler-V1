@@ -6,6 +6,7 @@ const LS_API_LAST = 'gridCrawler_apiLastSession';
 const LS_API_PRESETS = 'gridCrawler_apiPresets';
 const LS_THEME_LAST = 'gridCrawler_themeLastSession';
 const LS_THEME_PRESETS = 'gridCrawler_themePresets';
+const LS_NARRATION_PROMPT_DEBUG = 'gridCrawler_narrationPromptDebug';
 
 let __themePresetCache = null;
 let __themeLastCache = null;
@@ -413,6 +414,9 @@ async function restoreSessionsFromStorage() {
   refreshApiPresetSelect();
   refreshThemePresetSelect();
   syncGameplayApiControlsFromFields();
+  if (typeof syncNarrationPromptDebugButton === 'function') {
+    syncNarrationPromptDebugButton();
+  }
 
   // Seed Image API defaults from Narrator API fields (non-persistent for now).
   const imageUrlEl = document.getElementById('image-api-url');

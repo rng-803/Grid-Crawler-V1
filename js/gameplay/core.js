@@ -69,6 +69,49 @@ function toggleTimingDebug() {
   }
 }
 
+function isNarrationPromptDebugEnabled() {
+  try {
+    return localStorage.getItem(LS_NARRATION_PROMPT_DEBUG) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function syncNarrationPromptDebugButton(forceEnabled) {
+  const button = document.getElementById('btn-debug-narration');
+  if (!button) return;
+  const enabled = typeof forceEnabled === 'boolean' ? forceEnabled : isNarrationPromptDebugEnabled();
+  button.textContent = enabled ? 'Hide Narration Prompt Logs' : 'Show Narration Prompt Logs';
+  button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+}
+
+function setNarrationPromptDebugEnabled(enabled) {
+  try {
+    localStorage.setItem(LS_NARRATION_PROMPT_DEBUG, enabled ? '1' : '0');
+  } catch (_) {
+    // Ignore storage failures; the toggle still works for this session.
+  }
+  syncNarrationPromptDebugButton(enabled);
+  const status = document.getElementById('ai-status');
+  if (status) {
+    status.innerHTML = enabled
+      ? '<span class="info-txt">Narration prompt logging is enabled. Check the browser console for each LLM prompt.</span>'
+      : '';
+  }
+}
+
+function toggleNarrationPromptDebug() {
+  setNarrationPromptDebugEnabled(!isNarrationPromptDebugEnabled());
+}
+
+function logNarrationPromptDebug(label, payload, contextText = '') {
+  if (!isNarrationPromptDebugEnabled()) return;
+  console.groupCollapsed(`[Narration Prompt] ${label}`);
+  if (contextText) console.log('Story context:', contextText);
+  console.log('LLM prompt:', payload);
+  console.groupEnd();
+}
+
 function refreshTimingDebug() {
   const div = document.getElementById('debug-timings');
   const button = document.getElementById('btn-debug-timings');
@@ -217,6 +260,7 @@ function initState(className) {
     lastDefeat: null,
     storySummary: '',
     currentRunChronicle: '',
+    betweenRunChronicle: '',
     runDefeatInProgress: false,
     locations: {
       dungeon: {
@@ -1473,7 +1517,7 @@ function stripHtml(value) {
 function fallbackStorySummary(defeatDetails, permanentCurse) {
   const previous = G.storySummary ? `${G.storySummary} ` : '';
   const curseText = permanentCurse ? ` A curse remains permanent: ${permanentCurse.name}.` : '';
-  const chronicle = (G.currentRunChronicle || G.llmChronicle || '').replace(/\s+/g, ' ').trim();
+  const chronicle = String(G.currentRunChronicle || '').replace(/\s+/g, ' ').trim();
   const recent = chronicle ? ` Recent events: ${chronicle.slice(-700)}` : '';
   return `${previous}Run ${defeatDetails.runNumber} ended after ${defeatDetails.reasonText}.${curseText}${recent}`.slice(-1800).trim();
 }
@@ -1481,14 +1525,13 @@ function fallbackStorySummary(defeatDetails, permanentCurse) {
 async function summarizeStoryAfterDefeat(defeatDetails, permanentCurse) {
   const previousSummary = G.storySummary || '';
   const chronicle = G.currentRunChronicle || G.llmChronicle || '';
+  const summaryPrompt = buildStorySummaryPrompt(previousSummary, chronicle, defeatDetails, permanentCurse);
+  logNarrationPromptDebug('storySummary', summaryPrompt, chronicle);
   let summary = null;
   try {
     const { apiKey } = getApiFromDom();
     if (apiKey) {
-      summary = await chatCompletion(
-        buildStorySummaryPrompt(previousSummary, chronicle, defeatDetails, permanentCurse),
-        { label: 'storySummary' },
-      );
+      summary = await chatCompletion(summaryPrompt, { label: 'storySummary' });
     }
   } catch (err) {
     console.error('Story summary error:', err);
@@ -2475,12 +2518,19 @@ function toggleChronicleHistory() {
 }
 
 async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-txt">The narrator is thinking...</span>', cls = 'event-neutral', options = {}) {
-  const chronicleContext = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n').slice(-30000);
+  const chronicleContext = [G.storySummary, G.currentRunChronicle, G.betweenRunChronicle]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(-30000);
   const shouldFocus = options.focus !== false;
   const el = addLog(placeholderHtml, cls, { focus: shouldFocus });
   if (shouldFocus) focusChronicleEntry(el);
   let text = '';
   const promptWithContext = `The story so far: ${chronicleContext}. Current event: ${prompt}`;
+  if (isNarrationPromptDebugEnabled()) {
+    const fullPrompt = buildNarratorFullPrompt(AI_CONTEXT, promptWithContext);
+    logNarrationPromptDebug(cls, fullPrompt, chronicleContext || '(empty)');
+  }
   const narration = await generateNarration(AI_CONTEXT, promptWithContext, {
     onChunk: (chunk, fullText) => {
       text = fullText || (text + chunk);
@@ -2498,10 +2548,16 @@ async function streamNarrationLog(prompt, placeholderHtml = '<span class="info-t
   if (shouldFocus) focusChronicleEntry(el);
   if (narration) {
     const trimmed = narration.trim();
-    G.currentRunChronicle = G.currentRunChronicle
-      ? `${G.currentRunChronicle}\n\n${trimmed}`
-      : trimmed;
-    G.llmChronicle = [G.storySummary, G.currentRunChronicle].filter(Boolean).join('\n\n');
+    if (G.betweenRuns) {
+      G.betweenRunChronicle = G.betweenRunChronicle
+        ? `${G.betweenRunChronicle}\n\n${trimmed}`
+        : trimmed;
+    } else {
+      G.currentRunChronicle = G.currentRunChronicle
+        ? `${G.currentRunChronicle}\n\n${trimmed}`
+        : trimmed;
+    }
+    G.llmChronicle = [G.storySummary, G.betweenRunChronicle, G.currentRunChronicle].filter(Boolean).join('\n\n');
   }
   return narration;
 }

@@ -18,10 +18,9 @@ ${promptText}`;
 }
 
 function buildRunDefeatPrompt(reasonText, playerContext) {
-  return `The player has been defeated during the current dungeon run, but this is not the end of the game.
-Defeat reason: ${reasonText}
-Player state: ${playerContext}
-Describe the immediate defeat. Do not write a final epilogue and do not imply the adventure is over forever.`;
+  return `The player has been defeated and claimed by the traps and enemies.
+
+Describe the immediate defeat and the players fate. Do not write a final epilogue and do not imply the adventure is over forever.`;
 }
 
 function buildReturnToTownPrompt(defeatDetails, playerContext) {

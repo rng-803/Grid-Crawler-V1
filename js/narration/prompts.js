@@ -19,7 +19,6 @@ ${promptText}`;
 
 function buildRunDefeatPrompt(reasonText, playerContext) {
   return `The player has been defeated and claimed by the traps and enemies.
-
 Describe the immediate defeat and the players fate. Do not write a final epilogue and do not imply the adventure is over forever.`;
 }
 
@@ -29,7 +28,7 @@ function buildReturnToTownPrompt(defeatDetails, playerContext) {
     : 'no curse became permanent';
    const removedCursesNames = defeatDetails.removedCurses.map(c => c.name).join(", ");
   const prompt = `The player returns to town after losing dungeon run ${defeatDetails.runNumber}.
-Describe the player being returned to town by rescue, magic, fate, or another theme-appropriate means. the Healer NPC has found them, describe the removal of the ailments ${removedCursesNames}, but mention how ${permanentCurseText}. This is a transition into the next run, not a final ending. Player state after resurrection: ${playerContext}`;
+Describe the player being returned to town by rescue, magic, fate, or another theme-appropriate means. An ally has found them and healed them, describe the removal of the ailments ${removedCursesNames}, but mention how ${permanentCurseText}. This is a transition into the next run, not a final ending. Player state after resurrection: ${playerContext}`;
 console.log(prompt);
 return prompt;
 }
@@ -50,7 +49,7 @@ Return only the summary paragraph.`;
 }
 
 function buildBossStartPrompt(data, playerContext) {
-  return `The player has reached the final chamber and encountered the boss: ${data.name}.
+  return `The player has entered a new location and reached the final chamber and encountered the boss: ${data.name}.
 Player state: ${playerContext}
 The boss challenge has three consecutive checks in order: agility, persuasion, then combat.
 Describe the start of this final confrontation before the player commits. Do not present UI options.`;
@@ -71,19 +70,19 @@ Describe the player's escape.`;
 }
 
 function buildEnemyStartPrompt(data, diffCat, playerContext) {
-  return `The player has encountered an enemy: ${data.name} (Difficulty: ${diffCat}).
+  return `The player has entered a new location and encountered an enemy: ${data.name} (Difficulty: ${diffCat}).
 Player state: ${playerContext}
 Describe the start of the encounter, before the player chooses to engage or flee. do not mention numbers or stats, and do not give player their options for actions, you are just the story narrator`;
 }
 
 function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
   const curseText = acquiredCurse
-    ? `Acquired curse: ${acquiredCurse.name} (${promptAttrDisplay(acquiredCurse.attribute)} ${acquiredCurse.magnitude}).`
+    ? `Imposed modification: ${acquiredCurse.name} (${promptAttrDisplay(acquiredCurse.attribute)} ${acquiredCurse.magnitude}).`
     : '';
 
   const outcomeText = won
     ? 'The player WON. The enemy was defeated.'
-    : 'The player LOST. The player is not completely defeated, but has taken damage and is cursed, and will continue the adventure in this state.';
+    : 'The player LOST. The player is not completely defeated, but has taken damage and has a negative ailment imposed on them, and will continue the adventure in this state.';
 
   const instructionText = won
     ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
@@ -105,9 +104,9 @@ function promptRewardLabel(reward) {
 }
 
 function buildTreasureStartPrompt(diffCat, playerContext, reward) {
-  return `The player has encountered ${promptRewardLabel(reward)}, but it could be a trap. (Difficulty: ${diffCat}).
+  return `The player has entered a new location and encountered the item: ${promptRewardLabel(reward)}, but it could be a trap. (Difficulty: ${diffCat}).
 Player state: ${playerContext}
-Describe the start of the encounter, before the player chooses to investigate or flee. do not give player their options for actions, you are just the story narrator`;
+Describe the start of the scene, before the player chooses to investigate or flee. do not give player their options for actions, you are just the story narrator`;
 }
 
 function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
@@ -122,9 +121,9 @@ Describe the resolution of the encounter. Do not describe events not related to 
 }
 
 function buildNpcStartPrompt(data, diffCat, playerContext) {
-  return `The player has encountered an NPC: ${data.name} (Persuasion Difficulty: ${diffCat}).
+  return `The player has entered a new location and encountered an NPC: ${data.name} (Persuasion Difficulty: ${diffCat}).
 Player state: ${playerContext}
-The NPC will ask something of the player, fitting for the theme. Describe the start of the encounter before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
+The NPC will adress the player in a manner fitting for the theme. Describe the start of the encounter before the player chooses to talk or flee. Take into account the NPC's personality and attitude, and the player's persuasion check difficulty.`;
 }
 
 function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
@@ -139,7 +138,7 @@ Describe the resolution of the encounter. Include a short dialogue exchange betw
 }
 
 function buildFloorItemPrompt(item, playerContext) {
-  return `The player found an item: ${item.name}.
+  return `The player has entered a new location and found an item: ${item.name}.
 Player state: ${playerContext}
 Describe the player picking up the item, in a few sentences`;
 }
@@ -150,14 +149,14 @@ function buildTownNpcDetailText(data) {
 
 function buildHealerDialoguePrompt(data, playerContext, lastDefeat) {
   const defeatText = lastDefeat
-    ? `The player recently returned from run ${lastDefeat.runNumber} after this defeat, they were healed by the healer NPC, and had some of their curses removed.`
+    ? `The player recently returned from run ${lastDefeat.runNumber} after this defeat, they were rescued and healed by this ally NPC, and had some of their curses removed.`
     : 'The player is between dungeon runs.';
   return `The player visited a town healer: ${data.name}.
 ${buildTownNpcDetailText(data)}
 Player state: ${playerContext}
 Context: ${defeatText}
-Service: The healer does not sell healing or remove curses anymore; the healer only offers resurrection dialogue and encouragement between runs.
-Write a short healer dialogue exchange. The healer should speak in a way that fits the theme, acknowledge the player's return to town, and not invent unrelated services.`;
+
+Write a short dialogue exchange between the player and this ally NPC that rescued them. The NPC should speak in a way that fits the theme, acknowledge the player's condition, as well as any permanent ailments they incurred.`;
 }
 
 function buildUpgraderDialoguePrompt(data, item, previousLevel, playerContext) {

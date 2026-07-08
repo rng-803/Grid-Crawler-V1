@@ -78,7 +78,7 @@ Describe the start of the encounter, before the player chooses to engage or flee
 function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
   const curseText = acquiredCurse
     ? `Imposed modification: ${acquiredCurse.name} (${promptAttrDisplay(acquiredCurse.attribute)} ${acquiredCurse.magnitude}).`
-    : '';
+    : 'No new modification was imposed.';
 
   const outcomeText = won
     ? 'The player WON. The enemy was defeated.'
@@ -86,7 +86,7 @@ function buildEnemyResolvePrompt(data, won, playerContext, acquiredCurse) {
 
   const instructionText = won
     ? 'Describe the player defeating the enemy. Do not mention a curse, injury, defeat, or the enemy imposing anything on the player.'
-    : `Describe the player losing the encounter without dying. Describe how the enemy imposed this curse onto the player: ${curseText}`;
+    : `Describe the player losing the encounter without dying. ${acquiredCurse ? `Describe how the enemy imposed this curse onto the player: ${curseText}` : 'Describe the damage and note that no new curse was imposed.'}`;
 
   return `The player engaged the enemy: ${data.name}.
 Outcome: ${outcomeText}
@@ -113,7 +113,7 @@ function buildTreasureResolvePrompt(won, playerContext, reward, data, s) {
   const rewardText = promptRewardLabel(reward);
   const outcome = won
     ? `The player avoided a trap and claimed ${rewardText}.`
-    : `${rewardText} was enchanted with a trap and imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.`;
+    : `${rewardText} was enchanted with a trap${s ? ` and imposed ${s.name} upon the player` : ', but no new curse was available'}. The player is not completely defeated, but has taken damage and is changed by the encounter, and will continue the adventure in this state.`;
   return `The player investigated ${rewardText}.
 Player state: ${playerContext}
 Outcome: ${outcome}
@@ -130,7 +130,7 @@ function buildNpcResolvePrompt(data, won, playerContext, reward, s) {
   const rewardText = promptRewardLabel(reward);
   const outcome = won
     ? `The player succeeded and received a gift: ${rewardText}.`
-    : `The player failed to sway or satisfy the NPC. The NPC imposed ${s.name} upon the player. The player is not completely defeated, but has taken damage and is changed, and will continue the adventure in this state.`;
+    : `The player failed to sway or satisfy the NPC.${s ? ` The NPC imposed ${s.name} upon the player.` : ' No new curse was imposed.'} The player is not completely defeated, but has taken damage and is changed, and will continue the adventure in this state.`;
   return `The player talked to the NPC: ${data.name}.
 Player state: ${playerContext}
 Outcome: ${outcome}

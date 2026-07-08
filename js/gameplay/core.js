@@ -522,6 +522,13 @@ function cloneCursePools(pools) {
   };
 }
 
+function getCurrentCursePoolNames(attribute, magnitude) {
+  ensureRuntimeCursePools();
+  const source = GENERATED_CURSE_POOLS || defaultCursePoolTemplate();
+  const bucket = source[attribute] && source[attribute][String(magnitude)];
+  return Array.isArray(bucket) ? [...bucket] : [];
+}
+
 function buildCursePoolsFromNegativeStatusPool() {
   const pools = defaultCursePoolTemplate();
   for (const status of NEGATIVE_STATUS_POOL) {
@@ -546,11 +553,13 @@ function ensureRuntimeCursePools() {
   if (!GENERATED_CURSE_POOLS || !AVAILABLE_CURSE_POOLS) {
     setRuntimeCursePools(buildCursePoolsFromNegativeStatusPool());
   }
+  syncPermanentCursesWithPools();
 }
 
 function resetAvailableCursePoolsForRun() {
   ensureRuntimeCursePools();
   setRuntimeCursePools(GENERATED_CURSE_POOLS);
+  syncPermanentCursesWithPools();
 }
 
 function buildWorkingNamePools(namePools) {
@@ -1079,15 +1088,22 @@ function addItemFixed(itemData, legacyAttribute, legacyMagnitude) {
 }
 
 function pickFallbackCurseName(attribute, magnitude) {
-  const pool = NEGATIVE_STATUS_POOL.filter(s => s.attribute === attribute && s.magnitude === magnitude);
-  const alt = NEGATIVE_STATUS_POOL.filter(s => s.magnitude === magnitude);
-  const src = pool.length ? pool : (alt.length ? alt : NEGATIVE_STATUS_POOL);
-  return pick(src).name;
+  const sameBucket = getCurrentCursePoolNames(attribute, magnitude);
+  const sameMagnitude = ['power', 'perception', 'persuasion']
+    .flatMap(attr => getCurrentCursePoolNames(attr, magnitude))
+    .filter((name, index, array) => array.indexOf(name) === index);
+  const anyRemaining = ['power', 'perception', 'persuasion']
+    .flatMap(attr => ['-1', '-2'].flatMap(mag => getCurrentCursePoolNames(attr, mag)))
+    .filter((name, index, array) => array.indexOf(name) === index);
+  const src = sameBucket.length ? sameBucket : (sameMagnitude.length ? sameMagnitude : anyRemaining);
+  if (!src.length) return null;
+  return pick(src);
 }
 
 function applyCurseFromEncounter(data) {
   const fc = data.failCurse;
   const curse = drawAvailableCurse(fc.attribute, fc.magnitude);
+  if (!curse) return null;
   const s = { name: curse.name, attribute: curse.attribute, magnitude: curse.magnitude };
   G.player.statuses.push(s);
   return s;
@@ -1121,8 +1137,10 @@ function drawAvailableCurse(preferredAttribute, preferredMagnitude) {
     };
   }
 
+  const fallbackName = pickFallbackCurseName(preferredAttribute, preferredMagnitude);
+  if (!fallbackName) return null;
   return {
-    name: pickFallbackCurseName(preferredAttribute, preferredMagnitude),
+    name: fallbackName,
     attribute: preferredAttribute,
     magnitude: preferredMagnitude,
   };
@@ -1196,27 +1214,10 @@ function resolveEncounterOutcome(defaultWon) {
 async function checkGameOver() {
   if (G.runDefeatInProgress || G.phase.startsWith('gameover')) return true;
 
-  let reason = null;
-  if (G.player.hp <= 0) reason = 'hp';
-  else {
-    const eff = getEff();
-    for (const attr of ['power', 'perception', 'persuasion']) {
-      if (eff[attr] <= 0) {
-        reason = attr;
-        break;
-      }
-    }
-  }
-
-  if (reason) {
+  if (G.player.hp <= 0) {
     G.phase = 'loading';
     renderInputPanel();
-
-    let reasonText = '';
-    if (reason === 'hp') reasonText = 'You have succumbed to your wounds (0 HP).';
-    else reasonText = `Your ${reason} has dropped to 0 or below due to curses.`;
-
-    await handleRunDefeat(reasonText, 'attrition');
+    await handleRunDefeat('You have succumbed to your wounds (0 HP).', 'attrition');
     return true;
   }
   return false;
@@ -1547,10 +1548,30 @@ function sameCurse(a, b) {
   return Boolean(a && b && a.name === b.name && a.attribute === b.attribute && a.magnitude === b.magnitude);
 }
 
+function removeCurseFromPools(curse) {
+  if (!curse) return;
+
+  for (const pools of [GENERATED_CURSE_POOLS, AVAILABLE_CURSE_POOLS]) {
+    if (!pools || !pools[curse.attribute]) continue;
+    const bucket = pools[curse.attribute][String(curse.magnitude)];
+    if (!Array.isArray(bucket)) continue;
+    const index = bucket.indexOf(curse.name);
+    if (index !== -1) bucket.splice(index, 1);
+  }
+}
+
+function syncPermanentCursesWithPools() {
+  if (!G || !G.player || !Array.isArray(G.player.permanentCurses)) return;
+  for (const curse of G.player.permanentCurses) {
+    removeCurseFromPools(curse);
+  }
+}
+
 function addPermanentCurse(curse) {
   if (!curse) return null;
   const permanent = cloneCurse(curse, true);
   G.player.permanentCurses = G.player.permanentCurses || [];
+  removeCurseFromPools(permanent);
   if (!G.player.permanentCurses.some(existing => sameCurse(existing, permanent))) {
     G.player.permanentCurses.push(permanent);
   }
@@ -1741,7 +1762,7 @@ async function resolveEnemy(data) {
     s = applyCurseFromEncounter(data);
     damage(1);
     const gained = addMoney(rollRange(ENEMY_LOSS_MONEY));
-    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude}) · +${gained} coins.</span>`;
+    mechText = `<span class="danger-txt">The enemy overwhelms you (Power ${data.power} vs your ${eff.power}). You stagger back, wounded.</span><br><span class="danger-txt">▼ −1 HP${s ? ` · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})` : ' · No new curse was available.'} · +${gained} coins.</span>`;
   }
 
   const prompt = buildEnemyResolvePrompt(data, won, getPlayerContext(), s);
@@ -1798,7 +1819,7 @@ async function resolveTreasure(data) {
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">You trigger the treasure's trap (Difficulty ${data.difficulty} vs Agility ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    mechText = `<span class="danger-txt">You trigger the treasure's trap (Difficulty ${data.difficulty} vs Agility ${eff.perception}).</span><br><span class="danger-txt">▼ −1 HP${s ? ` · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})` : ' · No new curse was available.'}</span>`;
   }
 
   const prompt = buildTreasureResolvePrompt(won, getPlayerContext(), data.reward, data, s);
@@ -1854,7 +1875,7 @@ async function resolveNPC(data) {
   } else {
     s = applyCurseFromEncounter(data);
     damage(1);
-    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ −1 HP · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})</span>`;
+    mechText = `<span class="danger-txt">Your words fall flat (Persuasion ${eff.persuasion} vs Difficulty ${data.check}). The encounter turns hostile.</span><br><span class="danger-txt">▼ −1 HP${s ? ` · Cursed: <em>${s.name}</em> (${attrLabel(s.attribute)} ${s.magnitude})` : ' · No new curse was available.'}</span>`;
   }
 
   const prompt = buildNpcResolvePrompt(data, won, getPlayerContext(), data.reward, s);

@@ -1,0 +1,105 @@
+// Grid / progression tuning
+const GRID_WIDTH = 7;
+const GRID_HEIGHT = 7;
+const WALL_RATIO = 0.4;
+const MAX_ATTR = 20;
+const MAX_LEVEL = 20;
+const MAX_EQUIPPED_ITEMS = 5;
+const CURSE_CLEAR_ITEM_CHANCE = 0.25;
+const GRID_GEN_MAX_ATTEMPTS = 200;
+
+const ENCOUNTER_TYPES = ['enemy', 'treasure', 'npc', 'item'];
+
+// Persistent debuffs applied to the player (shown in-game as “curses”).
+let NEGATIVE_STATUS_POOL = [
+  { name: 'Weakened', attribute: 'power', magnitude: -1 },
+  { name: 'Fatigued', attribute: 'power', magnitude: -1 },
+  { name: 'Exhausted', attribute: 'power', magnitude: -2 },
+  { name: 'Broken', attribute: 'power', magnitude: -2 },
+  { name: 'Dazed', attribute: 'perception', magnitude: -1 },
+  { name: 'Distracted', attribute: 'perception', magnitude: -1 },
+  { name: 'Blinded', attribute: 'perception', magnitude: -2 },
+  { name: 'Deafened', attribute: 'perception', magnitude: -2 },
+  { name: 'Confused', attribute: 'persuasion', magnitude: -1 },
+  { name: 'Flustered', attribute: 'persuasion', magnitude: -1 },
+  { name: 'Terrified', attribute: 'persuasion', magnitude: -2 },
+  { name: 'Muted', attribute: 'persuasion', magnitude: -2 },
+];
+
+let ITEM_NAMES = {
+  power: {
+    'Weak': ['Iron Tonic', 'War Salve'],
+    'Strong': ['Berserker Draught', 'Strengthening Elixir'],
+    'Clear': ['Purifying Brew', 'Mending Salve']
+  },
+  perception: {
+    'Weak': ['Eagle Eye Drops', 'Clarity Vial'],
+    'Strong': ["Seer's Brew", 'Lens of Truth'],
+    'Clear': ['Eye Wash', 'Focus Potion']
+  },
+  persuasion: {
+    'Weak': ['Silver Tongue Oil', 'Charm Potion'],
+    'Strong': ["Diplomat's Tea", 'Signet of Trust'],
+    'Clear': ['Calming Incense', 'Soothing Tea']
+  }
+};
+
+let CURSE_CLEAR_ITEM_NAMES = [
+  'Purifying Brew',
+  'Mending Salve',
+  'Absolution Charm',
+  'Restoration Talisman',
+  'Cleansefire Candle',
+];
+
+const CLASSES = {
+  Fighter: { power: 7, perception: 4, persuasion: 4 },
+  Thinker: { power: 4, perception: 7, persuasion: 4 },
+  Talker: { power: 4, perception: 4, persuasion: 7 },
+};
+
+let ENEMY_NAMES = {
+  'Easy': ['a sickly rat', 'a weak slime', 'a crippled goblin'],
+  'Medium': ['a gaunt wraith', 'a grinning goblin', 'a feral hound'],
+  'Hard': ['a cave troll', 'a skeletal knight', 'a rogue mercenary'],
+  'Very Hard': ['a stone golem', 'a blood cultist', 'a dungeon warden']
+};
+let NPC_NAMES = {
+  'Easy': ['a lost pilgrim', 'a beggar'],
+  'Medium': ['a wandering merchant', 'a wounded soldier'],
+  'Hard': ['a suspicious hermit', 'an elusive thief'],
+  'Very Hard': ['a cryptic oracle', 'a powerful wizard']
+};
+
+function getDifficultyCategory(val) {
+  if (val <= 5) return 'Easy';
+  if (val <= 10) return 'Medium';
+  if (val <= 15) return 'Hard';
+  return 'Very Hard';
+}
+
+function rollDifficultyByDistance(x, y, exitX, exitY) {
+  let maxDist = 1;
+  for (let cy = 0; cy < GRID_HEIGHT; cy++) {
+    for (let cx = 0; cx < GRID_WIDTH; cx++) {
+      const d = Math.abs(cx - exitX) + Math.abs(cy - exitY);
+      if (d > maxDist) maxDist = d;
+    }
+  }
+
+  const dist = Math.abs(x - exitX) + Math.abs(y - exitY);
+  const ratio = 1 - (dist / maxDist);
+
+  let base;
+  if (ratio >= 0.75) {
+    base = 16;
+  } else if (ratio >= 0.5) {
+    base = 11;
+  } else if (ratio >= 0.25) {
+    base = 6;
+  } else {
+    base = 1;
+  }
+
+  return base + Math.floor(Math.random() * 5);
+}
